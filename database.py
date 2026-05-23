@@ -9,6 +9,7 @@
 
 import os
 import re
+import json
 from typing import Optional, List
 from datetime import datetime, timedelta, timezone as dt_timezone
 
@@ -133,6 +134,20 @@ async def init_tables():
             CREATE TABLE IF NOT EXISTS gateway_config (
                 key     TEXT PRIMARY KEY,
                 value   TEXT DEFAULT ''
+            );
+        """)
+
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS gateway_activity (
+                id BIGSERIAL PRIMARY KEY,
+                time TIMESTAMPTZ DEFAULT now(),
+                type TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                preview TEXT,
+                detail TEXT,
+                actions JSONB DEFAULT '[]',
+                session_id TEXT,
+                created_at TIMESTAMPTZ DEFAULT now()
             );
         """)
         
@@ -282,6 +297,15 @@ async def init_tables():
             """)
     
     print("✅ 数据库表结构已就绪")
+
+
+async def log_activity(atype, summary, preview=None, detail=None, actions=None, session_id=None):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO gateway_activity (type, summary, preview, detail, actions, session_id) VALUES ($1,$2,$3,$4,$5::jsonb,$6)",
+            atype, summary, preview, detail, json.dumps(actions or []), session_id
+        )
 
 
 # ============================================================
