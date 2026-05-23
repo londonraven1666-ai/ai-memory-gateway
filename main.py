@@ -24,7 +24,7 @@ from fastapi.responses import StreamingResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from database import init_tables, close_pool, save_message, search_memories, save_memory, get_all_memories_count, get_recent_memories, get_all_memories, get_pool, get_all_memories_detail, update_memory, delete_memory, delete_memories_batch, get_gateway_config, set_gateway_config, get_all_gateway_config, get_conversation_messages, get_session_cache_state, save_session_cache_state, delete_session_cache_state, save_token_usage, ensure_token_usage_table, ensure_conversation_titles_table, get_conversations_paginated, delete_conversation, batch_delete_conversations, merge_sessions_to_target, list_all_session_cache_states, export_all_conversations, import_conversations, get_last_user_content, update_last_assistant_message, db_row_to_message, backfill_memory_embeddings, get_pending_memory_embedding_count, search_conversations, update_message_content, rename_session_id, get_fragments_by_date, get_fragments_by_date_range, create_event_memory, deactivate_memories, promote_to_core, merge_memories, check_duplicate_memory, update_memory_with_layer, get_layer_statistics, cleanup_old_fragments, revert_merge
+from database import init_tables, close_pool, save_message, search_memories, save_memory, get_all_memories_count, get_recent_memories, get_all_memories, get_pool, get_all_memories_detail, update_memory, delete_memory, delete_memories_batch, get_gateway_config, set_gateway_config, get_all_gateway_config, get_conversation_messages, get_session_cache_state, save_session_cache_state, delete_session_cache_state, save_token_usage, ensure_token_usage_table, ensure_conversation_titles_table, get_conversations_paginated, delete_conversation, batch_delete_conversations, merge_sessions_to_target, list_all_session_cache_states, export_all_conversations, import_conversations, get_last_user_content, update_last_assistant_message, db_row_to_message, backfill_memory_embeddings, get_pending_memory_embedding_count, search_conversations, update_message_content, rename_session_id, get_fragments_by_date, get_fragments_by_date_range, create_event_memory, deactivate_memories, promote_to_core, merge_memories, check_duplicate_memory, update_memory_with_layer, get_layer_statistics, cleanup_old_fragments, revert_merge, log_activity
 import database as _db_module
 # ═══ Gateway-side tools ═══
 GATEWAY_TOOLS = [
@@ -352,7 +352,7 @@ templates = Jinja2Templates(directory="templates")
 # 记忆注入
 # ============================================================
 
-async def build_system_prompt_with_memories(user_message: str) -> str:
+async def build_system_prompt_with_memories(user_message: str, session_id: str = None) -> str:
     """
     构建带记忆的 system prompt
     1. 用用户消息搜索相关记忆
@@ -366,6 +366,10 @@ async def build_system_prompt_with_memories(user_message: str) -> str:
     
     try:
         memories = await search_memories(user_message, limit=MAX_MEMORIES_INJECT)
+        try:
+            await log_activity("memory", f"查记忆库：找到{len(memories)}条", session_id=session_id)
+        except Exception as e:
+            print(f"⚠️ activity log failed: {e}")
         
         if not memories:
             return SYSTEM_PROMPT
@@ -572,7 +576,7 @@ async def build_partitioned_messages(
     a_start_round = state['a_start_round']
     
     if total_rounds < X:
-        return await _build_basic_cached(history, base_prompt, user_message, current_user_msg)
+        return await _build_basic_cached(history, base_prompt, user_message, current_user_msg, session_id)
     
     # 计算A/B区（按逻辑轮切片）
     a_end_round = a_start_round + X
@@ -643,7 +647,7 @@ async def build_partitioned_messages(
         parts = [build_time_injection()]
         
         if MEMORY_ENABLED and MEMORY_EXTRACT_ENABLED and user_message:
-            mem_text = await build_memory_text(user_message)
+            mem_text = await build_memory_text(user_message, session_id=session_id)
             if mem_text:
                 parts.append(mem_text)
         
@@ -667,6 +671,7 @@ async def _build_basic_cached(
     base_prompt: str,
     user_message: str,
     current_user_msg: dict,
+    session_id: str = None,
 ) -> list:
     """基础版prompt caching（历史不够分区时的降级模式）"""
     result = []
@@ -688,7 +693,7 @@ async def _build_basic_cached(
         parts = [build_time_injection()]
         
         if MEMORY_ENABLED and MEMORY_EXTRACT_ENABLED and user_message:
-            mem_text = await build_memory_text(user_message)
+            mem_text = await build_memory_text(user_message, session_id=session_id)
             if mem_text:
                 parts.append(mem_text)
         
@@ -706,12 +711,16 @@ async def _build_basic_cached(
     return result
 
 
-async def build_memory_text(user_message: str) -> str:
+async def build_memory_text(user_message: str, session_id: str = None) -> str:
     """搜索记忆并格式化为注入文本（分区缓存模式用）"""
     if MAX_MEMORIES_INJECT <= 0:
         return ""
     try:
         memories = await search_memories(user_message, limit=MAX_MEMORIES_INJECT)
+        try:
+            await log_activity("memory", f"查记忆库：找到{len(memories)}条", session_id=session_id)
+        except Exception as e:
+            print(f"⚠️ activity log failed: {e}")
         if not memories:
             return ""
         
@@ -994,6 +1003,10 @@ async def chat_completions(request: Request):
     
     # ---------- 生成 session ID ----------
     session_id = str(uuid.uuid4())[:8]
+    try:
+        await log_activity("message", "收到用户消息", preview=user_message[:20], session_id=session_id)
+    except Exception as e:
+        print(f"⚠️ activity log failed: {e}")
     
     # ---------- 分区缓存模式 ----------
     if CACHE_PARTITION_ENABLED:
@@ -1073,7 +1086,7 @@ async def chat_completions(request: Request):
         # ---------- 原有逻辑：system prompt + 记忆注入 ----------
         if SYSTEM_PROMPT or (MEMORY_ENABLED and MEMORY_EXTRACT_ENABLED and user_message):
             if MEMORY_ENABLED and MEMORY_EXTRACT_ENABLED and user_message:
-                enhanced_prompt = await build_system_prompt_with_memories(user_message)
+                enhanced_prompt = await build_system_prompt_with_memories(user_message, session_id=session_id)
             else:
                 enhanced_prompt = SYSTEM_PROMPT
             
@@ -1261,6 +1274,14 @@ async def chat_completions(request: Request):
                                                     tool_messages=tool_messages, assistant_tool_calls=assistant_tool_calls,
                                                     assistant_reasoning=assistant_reasoning)
                     )
+
+                usage = resp_data.get("usage", {})
+                input_tokens = usage.get("prompt_tokens", 0)
+                output_tokens = usage.get("completion_tokens", 0)
+                try:
+                    await log_activity("reply", f"回复完成：↑{input_tokens} ↓{output_tokens}", session_id=session_id)
+                except Exception as e:
+                    print(f"⚠️ activity log failed: {e}")
                 
                 return JSONResponse(status_code=200, content=resp_data)
             else:
@@ -1364,6 +1385,13 @@ async def stream_and_capture(headers: dict, body: dict, session_id: str, user_me
         if tt > 0:
             asyncio.create_task(save_token_usage(session_id, model, pt, ct, tt))
             print(f"📊 Stream Token: {pt} + {ct} = {tt}")
+    else:
+        pt = 0
+        ct = 0
+    try:
+        await log_activity("reply", f"回复完成：↑{pt} ↓{ct}", session_id=session_id)
+    except Exception as e:
+        print(f"⚠️ activity log failed: {e}")
     
     if MEMORY_ENABLED and (user_message or tool_messages):
         asyncio.create_task(
