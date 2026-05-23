@@ -2526,6 +2526,31 @@ async def discard_pending_memory(request: Request):
     return {"status": "discarded", "id": pending_id, "result": result}
 
 
+@app.post("/api/mcp/test")
+async def test_mcp(request: Request):
+    await verify_admin(request)
+    body = await request.json()
+    url = body.get("url", "")
+    started = datetime.now()
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            await client.get(url)
+        latency_ms = int((datetime.now() - started).total_seconds() * 1000)
+        return {"status": "online", "latency_ms": latency_ms}
+    except Exception as e:
+        return {"status": "offline", "error": str(e)}
+
+
+@app.post("/api/mcp/toggle")
+async def toggle_mcp(request: Request):
+    await verify_admin(request)
+    body = await request.json()
+    name = body.get("name", "")
+    enabled = bool(body.get("enabled", False))
+    await set_gateway_config(f"mcp_disabled_{name}", "false" if enabled else "true")
+    return {"name": name, "enabled": enabled}
+
+
 @app.get("/api/settings")
 async def get_settings(request: Request):
     """获取高级设置（数据库优先，fallback 到环境变量/运行时默认值）"""
