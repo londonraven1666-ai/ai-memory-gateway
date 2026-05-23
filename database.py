@@ -943,7 +943,7 @@ async def search_memories_hybrid(query: str, limit: int = 10):
             filtered = 0
         
         results = final[:limit]
-        
+
         if results:
             mode_tag = "混合" if query_embedding else "关键词"
             kw_tag = f"关键词 {keywords[:6]}" if keywords else "无关键词"
@@ -958,6 +958,21 @@ async def search_memories_hybrid(query: str, limit: int = 10):
             )
         else:
             print(f"🔍 混合搜索 '{query}' → 无结果" + (f"（{filtered} 条被过滤）" if filtered else ""))
+
+        # Merge with core_memories results
+        try:
+            core_results = await _search_core_memories(query, limit=limit)
+            if core_results:
+                # Combine and re-sort by score, deduplicate by content similarity
+                seen = set(r['content'][:50] for r in results)
+                for cr in core_results:
+                    if cr['content'][:50] not in seen:
+                        results.append(cr)
+                        seen.add(cr['content'][:50])
+                results.sort(key=lambda x: x.get('score', 0), reverse=True)
+                results = results[:limit]
+        except Exception as e:
+            print(f"⚠️ core_memories search failed: {e}")
         
         return [dict(r) for r in results]
 
