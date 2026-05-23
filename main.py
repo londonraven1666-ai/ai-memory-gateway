@@ -352,6 +352,17 @@ templates = Jinja2Templates(directory="templates")
 # 记忆注入
 # ============================================================
 
+async def get_patrol_status():
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=3) as c:
+            track = (await c.get("http://localhost:3461/api/track/status")).json()
+            health = (await c.get("http://localhost:3461/api/health/snapshot")).json()
+        return f"[用户状态] 吃饭:{track.get('last_meal','未知')} 喝水:{track.get('last_water','未知')} 心率:{health.get('heart_rate','未知')} 步数:{health.get('steps','未知')}"
+    except:
+        return ""
+
+
 async def build_system_prompt_with_memories(user_message: str, session_id: str = None) -> str:
     """
     构建带记忆的 system prompt
@@ -1102,6 +1113,22 @@ async def chat_completions(request: Request):
         
         body["messages"] = messages
     
+    patrol = await get_patrol_status()
+    if patrol:
+        has_system = False
+        for msg in messages:
+            if msg.get("role") == "system":
+                content = msg.get("content")
+                if isinstance(content, list):
+                    content.append({"type": "text", "text": patrol})
+                else:
+                    msg["content"] = (content or "") + "\n\n" + patrol
+                has_system = True
+                break
+        if not has_system:
+            messages.insert(0, {"role": "system", "content": patrol})
+        body["messages"] = messages
+
     # ---------- 模型处理 ----------
     model = body.get("model", DEFAULT_MODEL)
     if not model:
