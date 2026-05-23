@@ -364,10 +364,13 @@ async def get_patrol_status():
 
 
 async def get_latest_summary():
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT content FROM user_state_summaries WHERE inject_enabled=true ORDER BY created_at DESC LIMIT 1")
-        return row['content'] if row else ""
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT content FROM user_state_summaries WHERE inject_enabled=true ORDER BY created_at DESC LIMIT 1")
+            return row['content'] if row else ""
+    except:
+        return ""
 
 
 def append_to_system_context(messages: list, text: str):
