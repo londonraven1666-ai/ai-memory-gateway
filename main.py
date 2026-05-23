@@ -363,6 +363,28 @@ async def get_patrol_status():
         return ""
 
 
+async def get_latest_summary():
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT content FROM user_state_summaries WHERE inject_enabled=true ORDER BY created_at DESC LIMIT 1")
+        return row['content'] if row else ""
+
+
+def append_to_system_context(messages: list, text: str):
+    has_system = False
+    for msg in messages:
+        if msg.get("role") == "system":
+            content = msg.get("content")
+            if isinstance(content, list):
+                content.append({"type": "text", "text": text})
+            else:
+                msg["content"] = (content or "") + "\n\n" + text
+            has_system = True
+            break
+    if not has_system:
+        messages.insert(0, {"role": "system", "content": text})
+
+
 async def build_system_prompt_with_memories(user_message: str, session_id: str = None) -> str:
     """
     构建带记忆的 system prompt
@@ -1115,18 +1137,12 @@ async def chat_completions(request: Request):
     
     patrol = await get_patrol_status()
     if patrol:
-        has_system = False
-        for msg in messages:
-            if msg.get("role") == "system":
-                content = msg.get("content")
-                if isinstance(content, list):
-                    content.append({"type": "text", "text": patrol})
-                else:
-                    msg["content"] = (content or "") + "\n\n" + patrol
-                has_system = True
-                break
-        if not has_system:
-            messages.insert(0, {"role": "system", "content": patrol})
+        append_to_system_context(messages, patrol)
+        body["messages"] = messages
+
+    summary = await get_latest_summary()
+    if summary:
+        append_to_system_context(messages, summary)
         body["messages"] = messages
 
     # ---------- 模型处理 ----------
@@ -2547,7 +2563,7 @@ async def get_activity(request: Request, limit: int = 50):
 
 
 @app.get("/api/summary/latest")
-async def get_latest_summary(request: Request):
+async def get_latest_summary_api(request: Request):
     await verify_admin(request)
     pool = await get_pool()
     async with pool.acquire() as conn:
