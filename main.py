@@ -2449,6 +2449,26 @@ async def verify_admin(request: Request):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
+@app.get("/api/status")
+async def get_status(request: Request):
+    await verify_admin(request)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        memory_table = await conn.fetchval("SELECT count(*) FROM core_memories")
+        today_tokens = await conn.fetchval("""
+            SELECT COALESCE(SUM(total_tokens), 0)
+            FROM token_usage
+            WHERE created_at >= date_trunc('day', now())
+        """)
+        last_message = await conn.fetchval("SELECT MAX(created_at) FROM conversations")
+    return {
+        "gateway": "online",
+        "memory_table": memory_table,
+        "today_tokens": today_tokens,
+        "last_message": last_message,
+    }
+
+
 @app.get("/api/settings")
 async def get_settings(request: Request):
     """获取高级设置（数据库优先，fallback 到环境变量/运行时默认值）"""
