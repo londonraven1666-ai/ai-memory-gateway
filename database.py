@@ -163,6 +163,17 @@ async def init_tables():
                 created_at TIMESTAMPTZ DEFAULT now()
             );
         """)
+
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_state_summaries (
+                id BIGSERIAL PRIMARY KEY,
+                content TEXT NOT NULL,
+                inject_enabled BOOLEAN DEFAULT TRUE,
+                include_health BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMPTZ DEFAULT now(),
+                updated_at TIMESTAMPTZ DEFAULT now()
+            );
+        """)
         
         # 分区缓存状态表（存储每个session的轮转状态）
         await conn.execute("""

@@ -2546,6 +2546,72 @@ async def get_activity(request: Request, limit: int = 50):
     return {"events": [dict(row) for row in rows]}
 
 
+@app.get("/api/summary/latest")
+async def get_latest_summary(request: Request):
+    await verify_admin(request)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT * FROM user_state_summaries ORDER BY created_at DESC LIMIT 1")
+    return dict(row) if row else {}
+
+
+@app.post("/api/summary/generate")
+async def generate_user_state_summary(request: Request):
+    await verify_admin(request)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT role, content, created_at
+            FROM conversations
+            WHERE created_at >= NOW() - INTERVAL '7 days'
+            ORDER BY created_at ASC
+        """)
+
+    conversation_text = "\n".join(
+        f"[{r['created_at']}] {r['role']}: {r['content'] or ''}"
+        for r in rows
+    )
+    prompt = f"""请根据以下最近7天的对话，生成一段简洁的用户状态摘要。
+聚焦：近期事件、情绪状态、健康/作息、偏好、正在进行的任务和需要持续记住的上下文。
+输出中文，控制在500字以内。
+
+---
+{conversation_text}
+---
+
+用户状态摘要："""
+
+    summary_model = SUMMARY_MODEL or TOOL_MODEL or DEFAULT_MODEL
+    try:
+        async with httpx.AsyncClient(timeout=120) as client:
+            response = await client.post(
+                SUMMARY_API_BASE_URL or API_BASE_URL,
+                headers={
+                    "Authorization": f"Bearer {SUMMARY_API_KEY or API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": summary_model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 800,
+                },
+            )
+        if response.status_code != 200:
+            return {"error": f"summary api returned {response.status_code}", "detail": response.text[:500]}
+        data = response.json()
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+    except Exception as e:
+        return {"error": str(e)}
+
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            INSERT INTO user_state_summaries (content)
+            VALUES ($1)
+            RETURNING *
+        """, content)
+    return dict(row)
+
+
 @app.get("/api/memory/pending")
 async def get_pending_memories(request: Request):
     await verify_admin(request)
