@@ -13,6 +13,24 @@ import httpx
 from typing import List, Dict
 
 API_KEY = os.getenv("API_KEY", "")
+
+async def _get_active_api_key():
+    """Get API key from database config (runtime), fallback to env."""
+    try:
+        from database import get_gateway_config
+        db_key = await get_gateway_config("API_KEY", "")
+        return db_key if db_key else API_KEY
+    except:
+        return API_KEY
+
+async def _get_active_api_url():
+    """Get API base URL from database config (runtime), fallback to env."""
+    try:
+        from database import get_gateway_config
+        db_url = await get_gateway_config("API_BASE_URL", "")
+        return db_url if db_url else API_BASE_URL
+    except:
+        return API_BASE_URL
 API_BASE_URL = os.getenv("API_BASE_URL", "https://openrouter.ai/api/v1/chat/completions")
 
 # 用来提取记忆的模型（便宜的就行）
@@ -77,7 +95,9 @@ async def extract_memories(messages: List[Dict[str, str]], existing_memories: Li
     返回：
         记忆列表，格式 [{"content": "...", "importance": N}, ...]
     """
-    if not API_KEY:
+    active_key = await _get_active_api_key()
+    active_url = await _get_active_api_url()
+    if not active_key:
         print("⚠️  API_KEY 未设置，跳过记忆提取")
         return []
 
@@ -112,7 +132,7 @@ async def extract_memories(messages: List[Dict[str, str]], existing_memories: Li
             response = await client.post(
                 API_BASE_URL,
                 headers={
-                    "Authorization": f"Bearer {API_KEY}",
+                    "Authorization": f"Bearer {active_key}",
                     "Content-Type": "application/json",
                     "HTTP-Referer": "https://midsummer-gateway.local",
                     "X-Title": "Midsummer Memory Extraction",
@@ -220,7 +240,7 @@ async def score_memories(texts: List[str]) -> List[Dict]:
             response = await client.post(
                 API_BASE_URL,
                 headers={
-                    "Authorization": f"Bearer {API_KEY}",
+                    "Authorization": f"Bearer {active_key}",
                     "Content-Type": "application/json",
                 },
                 json={

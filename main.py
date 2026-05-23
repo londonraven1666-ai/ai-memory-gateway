@@ -25,7 +25,96 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from database import init_tables, close_pool, save_message, search_memories, save_memory, get_all_memories_count, get_recent_memories, get_all_memories, get_pool, get_all_memories_detail, update_memory, delete_memory, delete_memories_batch, get_gateway_config, set_gateway_config, get_all_gateway_config, get_conversation_messages, get_session_cache_state, save_session_cache_state, delete_session_cache_state, save_token_usage, ensure_token_usage_table, ensure_conversation_titles_table, get_conversations_paginated, delete_conversation, batch_delete_conversations, merge_sessions_to_target, list_all_session_cache_states, export_all_conversations, import_conversations, get_last_user_content, update_last_assistant_message, db_row_to_message, backfill_memory_embeddings, get_pending_memory_embedding_count, search_conversations, update_message_content, rename_session_id, get_fragments_by_date, get_fragments_by_date_range, create_event_memory, deactivate_memories, promote_to_core, merge_memories, check_duplicate_memory, update_memory_with_layer, get_layer_statistics, cleanup_old_fragments, revert_merge
-import database as _db_module  # 用于 /api/settings 热更新 database.py 全局变量
+import database as _db_module
+# ═══ Gateway-side tools ═══
+GATEWAY_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "save_memory",
+            "description": "Save information to long-term memory. ONLY use when the user EXPLICITLY asks you to remember something (e.g. 记住, remember this, 存一下). Do NOT auto-save from normal conversation. The gateway already auto-extracts memories every 3 turns — this tool is for explicit user requests only.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "content": {"type": "string", "description": "The memory content. Be detailed and specific."},
+                    "title": {"type": "string", "description": "Short title under 50 chars"},
+                    "importance": {"type": "integer", "description": "1-10 score. 10=critical, 7=important, 5=normal", "default": 5}
+                },
+                "required": ["content", "title"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_memory",
+            "description": "Search long-term memories. Use when the user asks about past conversations, preferences, or history.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search keywords"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "exec_vps",
+            "description": "Execute a terminal command on the VPS server. Use for: checking service status, reading files, restarting services, viewing logs, managing the server. Be careful with destructive commands.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "The bash command to execute"}
+                },
+                "required": ["command"]
+            }
+        }
+    }
+]
+
+async def execute_gateway_tool(tool_name, tool_args):
+    if tool_name == "save_memory":
+        try:
+            mem_id = await save_memory(
+                content=tool_args.get("content", ""),
+                importance=tool_args.get("importance", 5),
+                source_session="gateway_tool"
+            )
+            title = tool_args.get("title", "")
+            print(f"\U0001f4be Gateway: saved \'{title}\' (id={mem_id})")
+            return f"Memory saved: {title}"
+        except Exception as e:
+            return f"Failed: {e}"
+    elif tool_name == "search_memory":
+        try:
+            results = await search_memories(tool_args.get("query", ""), limit=8)
+            if not results:
+                return "No memories found."
+            return "\n".join(f"- {r.get('content','')[:200]}" for r in results[:8])
+        except Exception as e:
+            return f"Search failed: {e}"
+    elif tool_name == "exec_vps":
+        try:
+            import subprocess
+            cmd = tool_args.get("command", "")
+            if not cmd:
+                return "No command provided"
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
+            output = result.stdout[-2000:] if result.stdout else ""
+            if result.stderr:
+                output += "\nSTDERR: " + result.stderr[-500:]
+            print(f"\U0001f419 exec_vps: {cmd[:60]}")
+            return output or "(no output)"
+        except subprocess.TimeoutExpired:
+            return "Command timed out (30s limit)"
+        except Exception as e:
+            return f"Exec failed: {e}"
+    
+    return f"Unknown tool: {tool_name}"
+
+  # 用于 /api/settings 热更新 database.py 全局变量
 from memory_extractor import extract_memories, score_memories
 
 # ============================================================
@@ -105,6 +194,22 @@ def load_system_prompt():
 
 
 SYSTEM_PROMPT = load_system_prompt()
+_GATEWAY_TOOLS_PROMPT = """
+<gateway_tools>
+你有以下工具可用。需要时在回复末尾用标签调用，标签会被网关处理后移除：
+
+1. 存记忆：<SAVE_MEMORY title="标题">内容</SAVE_MEMORY>
+   仅在用户明确说"记住/remember/存一下"时使用。
+
+2. 搜记忆：<SEARCH_MEMORY>关键词</SEARCH_MEMORY>
+   用户问"你还记得吗/之前说过"时使用。
+
+3. 执行VPS命令：<EXEC_VPS>命令</EXEC_VPS>
+   用户要求查服务器、重启服务、读文件时使用。
+
+正常对话不要使用标签。
+</gateway_tools>"""
+SYSTEM_PROMPT = (SYSTEM_PROMPT + "\n" + _GATEWAY_TOOLS_PROMPT) if SYSTEM_PROMPT else _GATEWAY_TOOLS_PROMPT
 _DEFAULT_SYSTEM_PROMPT = SYSTEM_PROMPT  # 保留文件原始版本
 if SYSTEM_PROMPT:
     print(f"✅ 人设已加载，长度：{len(SYSTEM_PROMPT)} 字符")
@@ -155,6 +260,16 @@ async def lifespan(app: FastAPI):
             await init_tables()
             await ensure_token_usage_table()
             await ensure_conversation_titles_table()
+            # Load saved settings from database
+            try:
+                db_config = await get_all_gateway_config()
+                for key in ["API_KEY", "API_BASE_URL", "DEFAULT_MODEL"]:
+                    val = db_config.get(key)
+                    if val:
+                        globals()[key] = val
+                        print(f"📦 Loaded {key} from database" + (" (masked)" if "KEY" in key else f": {val[:30]}"))
+            except Exception as e:
+                print(f"⚠️ Failed to load config from database: {e}")
             count = await get_all_memories_count()
             print(f"✅ 记忆系统已启动，当前记忆数量：{count}")
             if not MEMORY_EXTRACT_ENABLED:
@@ -734,6 +849,15 @@ async def process_memories_background(session_id: str, user_msg: str, assistant_
 # API 接口
 # ============================================================
 
+
+@app.get("/config")
+async def simple_config_page():
+    import os
+    from fastapi.responses import HTMLResponse
+    p = os.path.join(os.path.dirname(__file__), "static", "config.html")
+    with open(p, "r") as f:
+        return HTMLResponse(f.read())
+
 @app.get("/")
 async def health_check():
     """健康检查"""
@@ -975,11 +1099,58 @@ async def chat_completions(request: Request):
             headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
         )
     else:
+        # Gateway tools: tag-based (parsed from response)
+        
         async with httpx.AsyncClient(timeout=300) as client:
             response = await client.post(API_BASE_URL, headers=headers, json=body)
             
             if response.status_code == 200:
                 resp_data = response.json()
+                
+                # Check for gateway tool calls and execute them
+                try:
+                    msg_obj = resp_data["choices"][0]["message"]
+                    if msg_obj.get("tool_calls"):
+                        gateway_tool_names = {t["function"]["name"] for t in GATEWAY_TOOLS}
+                        gw_calls = [tc for tc in msg_obj["tool_calls"] 
+                                    if tc.get("function", {}).get("name") in gateway_tool_names]
+                        
+                        if gw_calls:
+                            print(f"🔧 Gateway tools called: {[tc['function']['name'] for tc in gw_calls]}")
+                            
+                            # Execute gateway tools
+                            tool_results = []
+                            for tc in gw_calls:
+                                fname = tc["function"]["name"]
+                                import json as _json
+                                fargs = _json.loads(tc["function"].get("arguments", "{}"))
+                                result = await execute_gateway_tool(fname, fargs)
+                                tool_results.append({
+                                    "role": "tool",
+                                    "tool_call_id": tc["id"],
+                                    "content": result
+                                })
+                            
+                            # If ALL tool calls are gateway tools, do a follow-up call
+                            non_gw_calls = [tc for tc in msg_obj["tool_calls"] if tc not in gw_calls]
+                            if not non_gw_calls:
+                                # All tools are ours - return result directly without follow-up LLM call
+                                tool_summary = "; ".join(r["content"] for r in tool_results)
+                                resp_data = {
+                                    "id": f"gw-{uuid.uuid4().hex[:8]}",
+                                    "object": "chat.completion",
+                                    "model": body.get("model", "gateway"),
+                                    "choices": [{
+                                        "index": 0,
+                                        "message": {"role": "assistant", "content": f"[✓] {tool_summary}"},
+                                        "finish_reason": "stop"
+                                    }],
+                                    "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+                                }
+                                print(f"🔧 Gateway tools done: {tool_summary}")
+                except Exception as e:
+                    print(f"⚠️ Gateway tool handling error: {e}")
+                
                 assistant_msg = ""
                 assistant_tool_calls = None
                 assistant_reasoning = None
@@ -995,6 +1166,50 @@ async def chat_completions(request: Request):
                 except (KeyError, IndexError):
                     pass
                 
+                # ─── Parse gateway tool tags from response ───
+                if assistant_msg:
+                    import re as _re
+                    # SAVE_MEMORY
+                    for _m in _re.finditer(r'<SAVE_MEMORY\s+title="([^"]*)">(.*?)</SAVE_MEMORY>', assistant_msg, _re.DOTALL):
+                        _title, _mem = _m.group(1), _m.group(2).strip()
+                        try:
+                            await save_memory(content=_mem, importance=5, source_session="gateway_tag")
+                            print(f"💾 Tag: saved '{_title}'")
+                        except Exception as _e:
+                            print(f"⚠️ Tag save failed: {_e}")
+
+                    # EXEC_VPS
+                    for _m in _re.finditer(r'<EXEC_VPS>(.*?)</EXEC_VPS>', assistant_msg, _re.DOTALL):
+                        _cmd = _m.group(1).strip()
+                        try:
+                            import subprocess
+                            _r = subprocess.run(_cmd, shell=True, capture_output=True, text=True, timeout=30)
+                            _out = (_r.stdout[-1000:] or "(no output)") + (("\nSTDERR:" + _r.stderr[-300:]) if _r.stderr else "")
+                            assistant_msg = assistant_msg.replace(_m.group(0), f"\n```\n$ {_cmd}\n{_out}\n```\n")
+                            print(f"🐙 Tag: exec '{_cmd[:50]}'")
+                        except Exception as _e:
+                            assistant_msg = assistant_msg.replace(_m.group(0), f"\n[exec failed: {_e}]\n")
+
+                    # SEARCH_MEMORY
+                    for _m in _re.finditer(r'<SEARCH_MEMORY>(.*?)</SEARCH_MEMORY>', assistant_msg, _re.DOTALL):
+                        _q = _m.group(1).strip()
+                        try:
+                            _results = await search_memories(_q, limit=5)
+                            _txt = "\n".join(f"- {r.get('content','')[:150]}" for r in (_results or [])[:5]) or "无结果"
+                            assistant_msg = assistant_msg.replace(_m.group(0), f"\n[搜索 '{_q}':]\n{_txt}\n")
+                            print(f"🔍 Tag: search '{_q}'")
+                        except Exception as _e:
+                            assistant_msg = assistant_msg.replace(_m.group(0), "")
+
+                    # Clean remaining tags
+                    assistant_msg = _re.sub(r'<SAVE_MEMORY[^>]*>.*?</SAVE_MEMORY>', '', assistant_msg, flags=_re.DOTALL).strip()
+                    
+                    # Update response
+                    try:
+                        resp_data["choices"][0]["message"]["content"] = assistant_msg
+                    except (KeyError, IndexError):
+                        pass
+
                 if MEMORY_ENABLED and (user_message or tool_messages):
                     asyncio.create_task(
                         process_memories_background(session_id, user_message, assistant_msg, model, 

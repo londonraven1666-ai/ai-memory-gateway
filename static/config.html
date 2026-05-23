@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gateway</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0e0c0a;color:#e8e0d4;font-family:-apple-system,sans-serif;padding:24px;max-width:440px;margin:0 auto}
+h1{font-size:13px;letter-spacing:4px;color:#c9a96e;margin-bottom:20px;font-weight:300}
+.card{background:rgba(30,27,23,0.8);border:1px solid rgba(201,169,110,0.12);border-radius:14px;padding:18px;margin-bottom:14px}
+label{font-size:10px;color:#8a8278;display:block;margin-bottom:4px;letter-spacing:1px}
+input{width:100%;padding:10px 12px;background:rgba(14,12,10,0.6);border:1px solid rgba(201,169,110,0.15);border-radius:10px;color:#e8e0d4;font-size:13px;outline:none;margin-bottom:10px}
+input:focus{border-color:rgba(201,169,110,0.4)}
+button{width:100%;padding:11px;background:rgba(201,169,110,0.12);border:1px solid rgba(201,169,110,0.25);border-radius:10px;color:#c9a96e;font-size:12px;cursor:pointer;letter-spacing:2px}
+button:hover{background:rgba(201,169,110,0.22)}
+.s{font-size:11px;margin-top:6px;min-height:18px}
+.ok{color:#7bc97a}.er{color:#c96e6e}
+.cur{font-size:11px;color:#8a8278;padding:6px 10px;background:rgba(14,12,10,0.4);border-radius:8px;margin-bottom:6px}
+</style>
+</head>
+<body>
+<h1>GATEWAY</h1>
+
+<div class="card">
+<div id="cur"></div>
+</div>
+
+<div class="card">
+<label>BASE URL</label>
+<input id="u" placeholder="https://xxx.top/v1/chat/completions">
+<label>API KEY</label>
+<input id="k" type="password" placeholder="sk-xxx">
+<label>MODEL</label>
+<input id="m" placeholder="[kiro]claude-opus-4-6">
+<button onclick="save()">SAVE</button>
+<div class="s" id="ss"></div>
+</div>
+
+<div class="card">
+<button onclick="test()">TEST</button>
+<div class="s" id="ts"></div>
+</div>
+
+<script>
+const P=window.location.pathname.includes('/gateway')?'/gateway':'';
+
+async function load(){
+  try{
+    const d=await(await fetch(P+'/api/settings')).json();
+    const s=d.settings||{};
+    document.getElementById('cur').innerHTML=
+      `<div class="cur">URL: ${s.API_BASE_URL||'—'}</div>`+
+      `<div class="cur">KEY: ${s.API_KEY||'—'}</div>`+
+      `<div class="cur">MODEL: ${s.DEFAULT_MODEL||'—'}</div>`;
+    document.getElementById('u').placeholder=s.API_BASE_URL||'';
+    document.getElementById('m').placeholder=s.DEFAULT_MODEL||'';
+  }catch(e){document.getElementById('cur').innerHTML='<span class="er">load failed</span>'}
+}
+
+async function save(){
+  const s=document.getElementById('ss');
+  try{
+    const b={};
+    const u=document.getElementById('u').value,k=document.getElementById('k').value,m=document.getElementById('m').value;
+    if(u)b.API_BASE_URL=u;
+    if(k)b.API_KEY=k;
+    if(m)b.DEFAULT_MODEL=m;
+    const r=await(await fetch(P+'/api/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)})).json();
+    s.className='s ok';s.textContent='saved';load();
+  }catch(e){s.className='s er';s.textContent=e.message}
+}
+
+async function test(){
+  const s=document.getElementById('ts');
+  s.className='s';s.textContent='...';
+  try{
+    const r=await(await fetch(P+'/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:(document.getElementById('m').value||document.getElementById('m').placeholder||'gateway'),messages:[{role:'user',content:'reply one word'}],max_tokens:16})})).json();
+    if(r.choices)s.className='s ok',s.textContent=r.choices[0].message.content.slice(0,40);
+    else s.className='s er',s.textContent=JSON.stringify(r.error||r).slice(0,60);
+  }catch(e){s.className='s er';s.textContent=e.message}
+}
+load();
+</script>
+</body>
+</html>

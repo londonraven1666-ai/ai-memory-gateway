@@ -1,3 +1,4 @@
+const _pfx = window.location.pathname.includes("/gateway") ? "/gateway" : "";
 /**
  * AI Memory Gateway - Dashboard JavaScript
  * 整合记忆管理、导入、导出功能
@@ -170,7 +171,7 @@ function updateLayerCounts(stats) {
 // ============================================
 async function loadMemories() {
     try {
-        const resp = await fetch('/api/memories');
+        const resp = await fetch(_pfx + '/api/memories');
         const data = await resp.json();
         allMemories = data.memories || [];
         if (data.layer_stats) updateLayerCounts(data.layer_stats);
@@ -348,7 +349,7 @@ async function semanticSearch() {
     document.getElementById('stats').textContent = '语义搜索中...';
     
     try {
-        const resp = await fetch('/api/memories/search?q=' + encodeURIComponent(q) + '&limit=20');
+        const resp = await fetch(_pfx + '/api/memories/search?q=' + encodeURIComponent(q) + '&limit=20');
         const data = await resp.json();
         
         if (data.error) {
@@ -387,7 +388,7 @@ async function changeLayer(id) {
     const newLayer = parseInt(layerEl.value);
     
     try {
-        const resp = await fetch('/api/memories/' + id, {
+        const resp = await fetch(_pfx + '/api/memories/' + id, {
             method: 'PUT',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({layer: newLayer})
@@ -416,7 +417,7 @@ async function saveMem(id) {
     const layer = layerEl ? parseInt(layerEl.value) : null;
     
     try {
-        const resp = await fetch('/api/memories/' + id, {
+        const resp = await fetch(_pfx + '/api/memories/' + id, {
             method: 'PUT',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({content, importance, title, layer})
@@ -440,7 +441,7 @@ async function delMem(id, hard = false) {
     if (!confirm(confirmMsg)) return;
     try {
         const soft = !hard;
-        const resp = await fetch('/api/memories/' + id + '?soft=' + soft, { method: 'DELETE' });
+        const resp = await fetch(_pfx + '/api/memories/' + id + '?soft=' + soft, { method: 'DELETE' });
         const data = await resp.json();
         if (data.error) {
             showManageMsg('error', '❌ ' + data.error);
@@ -456,7 +457,7 @@ async function delMem(id, hard = false) {
 
 async function restoreMem(id) {
     try {
-        const resp = await fetch('/api/memories/' + id + '/restore', { method: 'POST' });
+        const resp = await fetch(_pfx + '/api/memories/' + id + '/restore', { method: 'POST' });
         const data = await resp.json();
         if (data.error) {
             showManageMsg('error', '❌ ' + data.error);
@@ -492,7 +493,7 @@ async function batchSave() {
     
     if (!confirm('确定保存选中的 ' + updates.length + ' 条记忆的修改？')) return;
     try {
-        const resp = await fetch('/api/memories/batch-update', {
+        const resp = await fetch(_pfx + '/api/memories/batch-update', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({updates: updates})
@@ -514,7 +515,7 @@ async function batchDelete() {
     if (checked.length === 0) { showManageMsg('error', '请先勾选要删除的记忆'); return; }
     if (!confirm('确定删除选中的 ' + checked.length + ' 条记忆？此操作不可撤销。')) return;
     try {
-        const resp = await fetch('/api/memories/batch-delete', {
+        const resp = await fetch(_pfx + '/api/memories/batch-delete', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ids: checked})
@@ -579,7 +580,7 @@ async function showMergeSource(id) {
     }
     
     try {
-        const resp = await fetch('/api/memories?active_only=false');
+        const resp = await fetch(_pfx + '/api/memories?active_only=false');
         const data = await resp.json();
         const allMems = data.memories || [];
         
@@ -621,7 +622,7 @@ async function revertMerge(id) {
     }
     
     try {
-        const resp = await fetch('/api/memories/' + id + '/revert-merge', {
+        const resp = await fetch(_pfx + '/api/memories/' + id + '/revert-merge', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'}
         });
@@ -674,7 +675,7 @@ async function doMerge() {
     
     if (!content) { showManageMsg('error', '请输入合并后的内容'); return; }
     try {
-        const resp = await fetch('/api/memories/merge', {
+        const resp = await fetch(_pfx + '/api/memories/merge', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ ids: checked, title, content, importance, layer })
@@ -719,7 +720,7 @@ async function doConsolidate() {
     showManageMsg('info', '正在提交整理任务...');
     closeConsolidateModal();
     try {
-        const resp = await fetch('/api/memories/consolidate', {
+        const resp = await fetch(_pfx + '/api/memories/consolidate', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({start_date: startDate, end_date: endDate})
@@ -737,7 +738,7 @@ async function doConsolidate() {
         // 轮询状态
         const pollInterval = setInterval(async () => {
             try {
-                const statusResp = await fetch('/api/memories/consolidate/status');
+                const statusResp = await fetch(_pfx + '/api/memories/consolidate/status');
                 const status = await statusResp.json();
                 if (status.running) {
                     showManageMsg('info', '⏳ 整理进行中（' + (status.started_at || '') + '）...');
@@ -775,7 +776,7 @@ async function cleanupOldFragments() {
     
     showManageMsg('info', '正在清理...');
     try {
-        const resp = await fetch('/api/memories/cleanup-fragments', {
+        const resp = await fetch(_pfx + '/api/memories/cleanup-fragments', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({days: 30})
@@ -925,7 +926,7 @@ function clearImportResult() {
 async function loadExportStats() {
     const el = document.getElementById('export-stats');
     try {
-        const resp = await fetch('/api/memories');
+        const resp = await fetch(_pfx + '/api/memories');
         const data = await resp.json();
         const count = (data.memories || []).length;
         el.textContent = '当前共有 ' + count + ' 条记忆';
@@ -950,7 +951,7 @@ let convSearchQuery = '';
 async function loadConvStats() {
     const el = document.getElementById('conv-export-stats');
     try {
-        const resp = await fetch('/api/conversations?page=1&per_page=1');
+        const resp = await fetch(_pfx + '/api/conversations?page=1&per_page=1');
         const data = await resp.json();
         el.textContent = '当前共有 ' + (data.total || 0) + ' 个对话';
     } catch(e) {
@@ -1020,7 +1021,7 @@ async function doConvImport() {
         resultEl.innerHTML = `<div class="msg msg-info">导入中... 第 ${i + 1}/${totalBatches} 批（${progress}%）已导入 ${totalImported} 条</div>`;
         
         try {
-            const resp = await fetch('/api/conversations/import', {
+            const resp = await fetch(_pfx + '/api/conversations/import', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(batch)
@@ -1063,7 +1064,7 @@ async function loadConversationList(page = 1) {
     container.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 20px 0;">加载中...</div>';
     
     try {
-        const resp = await fetch('/api/conversations?page=' + page + '&per_page=20');
+        const resp = await fetch(_pfx + '/api/conversations?page=' + page + '&per_page=20');
         const data = await resp.json();
         if (data.error) {
             container.innerHTML = '<div style="color: var(--error); padding: 20px 0;">加载失败: ' + data.error + '</div>';
@@ -1090,7 +1091,7 @@ async function searchConversations() {
     container.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 20px 0;">搜索中...</div>';
     
     try {
-        const resp = await fetch('/api/chat/search?q=' + encodeURIComponent(query) + '&limit=20&offset=0');
+        const resp = await fetch(_pfx + '/api/chat/search?q=' + encodeURIComponent(query) + '&limit=20&offset=0');
         if (resp.status === 404) { statusEl.textContent = '搜索功能暂未启用'; container.innerHTML = ''; return; }
         const data = await resp.json();
         if (data.error) {
@@ -1403,7 +1404,7 @@ async function batchDeleteConversations() {
     const sessionIds = Array.from(checked).map(cb => cb.value);
     
     try {
-        const resp = await fetch('/api/conversations/batch-delete', {
+        const resp = await fetch(_pfx + '/api/conversations/batch-delete', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ session_ids: sessionIds })
@@ -1436,7 +1437,7 @@ async function batchMergeSessions() {
     if (!confirm(`确定将选中的 ${sessionIds.length} 个对话合并到「${targetId}」吗？\n\n此操作不可撤销。`)) return;
     
     try {
-        const resp = await fetch('/api/admin/merge-sessions', {
+        const resp = await fetch(_pfx + '/api/admin/merge-sessions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ source_ids: sessionIds, target_id: targetId })
@@ -1492,8 +1493,8 @@ let _summaryEditSid = '';
 async function loadThreads() {
     try {
         const [statusResp, threadsResp] = await Promise.all([
-            fetch('/api/partition/status'),
-            fetch('/api/partition/threads')
+            fetch(_pfx + '/api/partition/status'),
+            fetch(_pfx + '/api/partition/threads')
         ]);
         const status = await statusResp.json();
         const data = await threadsResp.json();
@@ -1588,7 +1589,7 @@ async function createThread() {
     }
     
     try {
-        const resp = await fetch('/api/partition/thread', {
+        const resp = await fetch(_pfx + '/api/partition/thread', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ session_id: newId, copy_summary_from: copyFrom })
@@ -1611,7 +1612,7 @@ async function renameThread(oldId) {
     const newId = prompt(`请输入新的对话线ID（当前: ${oldId}）:`, oldId);
     if (!newId || newId.trim() === '' || newId.trim() === oldId) return;
     try {
-        const resp = await fetch('/api/partition/thread/rename', {
+        const resp = await fetch(_pfx + '/api/partition/thread/rename', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ old_id: oldId, new_id: newId.trim() })
@@ -1631,7 +1632,7 @@ async function switchThread(sessionId) {
     if (!confirm(`确定切换到对话线「${sessionId}」吗？\n\n切换后所有平台的新消息将存入此对话线。`)) return;
     
     try {
-        const resp = await fetch('/api/partition/switch', {
+        const resp = await fetch(_pfx + '/api/partition/switch', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ session_id: sessionId })
@@ -1653,7 +1654,7 @@ async function openSummaryModal(sessionId) {
     
     // 获取完整摘要
     try {
-        const resp = await fetch('/api/partition/status');
+        const resp = await fetch(_pfx + '/api/partition/status');
         const status = await resp.json();
         
         // 如果是活跃session就直接用status的摘要，否则单独获取
@@ -1694,7 +1695,7 @@ async function saveSummary() {
     const summary = document.getElementById('summary-editor').value;
     
     try {
-        const resp = await fetch('/api/partition/summary', {
+        const resp = await fetch(_pfx + '/api/partition/summary', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ session_id: _summaryEditSid, summary: summary })
@@ -1716,7 +1717,7 @@ async function clearSummary() {
     if (!confirm(`确定清空「${_summaryEditSid}」的摘要吗？此操作不可撤销。`)) return;
     
     try {
-        const resp = await fetch('/api/partition/summary', {
+        const resp = await fetch(_pfx + '/api/partition/summary', {
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ session_id: _summaryEditSid })
@@ -1749,7 +1750,7 @@ async function startBackfillMemoryEmbeddings() {
     msgEl.innerHTML = '';
     
     try {
-        const resp = await fetch('/api/admin/backfill-memory-embeddings', { method: 'POST' });
+        const resp = await fetch(_pfx + '/api/admin/backfill-memory-embeddings', { method: 'POST' });
         
         if (!resp.ok) {
             const text = await resp.text();
@@ -1787,7 +1788,7 @@ async function startBackfillMemoryEmbeddings() {
 
 async function pollBackfillStatus() {
     try {
-        const resp = await fetch('/api/admin/backfill-memory-embeddings/status');
+        const resp = await fetch(_pfx + '/api/admin/backfill-memory-embeddings/status');
         const data = await resp.json();
         
         updateBackfillProgress(data.done, data.total);
@@ -1844,7 +1845,7 @@ const _MODEL_COMBOS = ['DEFAULT_MODEL', 'MEMORY_MODEL', 'CACHE_SUMMARY_MODEL'];
 
 async function loadSettings() {
     try {
-        const resp = await fetch('/api/settings');
+        const resp = await fetch(_pfx + '/api/settings');
         const data = await resp.json();
         if (data.error) { showSettingsMsg('error', '加载失败: ' + data.error); return; }
         const s = data.settings;
@@ -1934,7 +1935,7 @@ async function saveSettings() {
     if (promptEl) payload.systemPrompt = promptEl.value;
 
     try {
-        const resp = await fetch('/api/settings', {
+        const resp = await fetch(_pfx + '/api/settings', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -1959,7 +1960,7 @@ async function loadModelList() {
     const hint = document.getElementById('model-count-hint');
     if (hint) hint.textContent = '加载模型列表...';
     try {
-        const resp = await fetch('/api/models');
+        const resp = await fetch(_pfx + '/api/models');
         const data = await resp.json();
         _modelList = data.models || [];
 

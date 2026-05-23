@@ -606,6 +606,60 @@ async def save_memory(content: str, importance: int = 5, source_session: str = "
                 print(f"⚠️ 记忆 {row['id']} embedding自动计算失败: {e}")
 
 
+
+async def _search_core_memories(query: str, limit: int = 10):
+    """Search Altairbrain core_memories table."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        exists = await conn.fetchval(
+            "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name='core_memories')"
+        )
+        if not exists:
+            return []
+        
+        keywords = extract_search_keywords(query)
+        if not keywords:
+            return []
+        
+        case_parts = []
+        params = []
+        for i, kw in enumerate(keywords):
+            case_parts.append(f"CASE WHEN content ILIKE '%' || ${i+1} || '%' THEN 1 ELSE 0 END")
+            params.append(kw)
+        
+        hit_count_expr = " + ".join(case_parts)
+        max_hits = len(keywords)
+        where_parts = [f"content ILIKE '%' || ${i+1} || '%'" for i in range(len(keywords))]
+        where_clause = f"({' OR '.join(where_parts)})"
+        
+        importance_expr = """CASE importance 
+            WHEN 'critical' THEN 10 WHEN 'high' THEN 8 
+            WHEN 'medium' THEN 6 WHEN 'normal' THEN 5 WHEN 'low' THEN 3 ELSE 5 END"""
+        
+        params.append(limit)
+        limit_idx = len(keywords) + 1
+        
+        sql = f"""
+            SELECT id, content, {importance_expr} as importance, created_at,
+                   ({hit_count_expr}) AS hit_count,
+                   (0.5 * ({hit_count_expr})::float / {max_hits}.0 + 
+                    0.3 * ({importance_expr})::float / 10.0 +
+                    0.2 * (1.0 / (1.0 + EXTRACT(EPOCH FROM (NOW() - created_at)) / 86400.0))
+                   ) AS score
+            FROM core_memories
+            WHERE {where_clause}
+            ORDER BY score DESC
+            LIMIT ${limit_idx}
+        """
+        results = await conn.fetch(sql, *params)
+        
+        if results:
+            print(f"\U0001f9e0 core_memories hit {len(results)}")
+            for r in results[:3]:
+                print(f"   \U0001f4cc [core] score={r['score']:.3f} {r['content'][:60]}...")
+        
+        return results
+
 async def search_memories(query: str, limit: int = 10):
     """
     搜索相关记忆
@@ -678,6 +732,21 @@ async def search_memories(query: str, limit: int = 10):
             )
         else:
             print(f"🔍 搜索 '{query}' → 关键词 {keywords[:8]} → 无结果" + (f"（{filtered} 条被分数阈值过滤）" if filtered else ""))
+        
+        # Merge with core_memories results
+        try:
+            core_results = await _search_core_memories(query, limit=limit)
+            if core_results:
+                # Combine and re-sort by score, deduplicate by content similarity
+                seen = set(r['content'][:50] for r in results)
+                for cr in core_results:
+                    if cr['content'][:50] not in seen:
+                        results.append(cr)
+                        seen.add(cr['content'][:50])
+                results.sort(key=lambda x: x.get('score', 0), reverse=True)
+                results = results[:limit]
+        except Exception as e:
+            print(f"⚠️ core_memories search failed: {e}")
         
         return results
 
