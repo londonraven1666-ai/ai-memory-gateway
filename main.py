@@ -132,6 +132,8 @@ API_BASE_URL = os.getenv("API_BASE_URL", "https://openrouter.ai/api/v1/chat/comp
 
 # 默认模型（如果客户端没指定就用这个）
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "anthropic/claude-sonnet-4")
+TOOL_MODEL = os.getenv("TOOL_MODEL", "")
+SUMMARY_MODEL = os.getenv("SUMMARY_MODEL", "")
 
 # 网关端口
 PORT = int(os.getenv("PORT", "8080"))
@@ -263,7 +265,7 @@ async def lifespan(app: FastAPI):
             # Load saved settings from database
             try:
                 db_config = await get_all_gateway_config()
-                for key in ["API_KEY", "API_BASE_URL", "DEFAULT_MODEL"]:
+                for key in ["API_KEY", "API_BASE_URL", "DEFAULT_MODEL", "TOOL_MODEL", "SUMMARY_MODEL"]:
                     val = db_config.get(key)
                     if val:
                         globals()[key] = val
@@ -1572,8 +1574,8 @@ async def consolidate_memories_for_date_range(start_date, end_date):
     # 调用 AI 进行整理
     prompt = CONSOLIDATION_PROMPT.format(fragments=fragments_text)
     
-    # 使用环境变量配置的模型，默认 haiku 节省成本
-    consolidation_model = os.getenv("MEMORY_MODEL", "") or os.getenv("DEFAULT_MODEL", "anthropic/claude-haiku-4.5")
+    # 使用默认模型，默认 haiku 节省成本
+    consolidation_model = os.getenv("DEFAULT_MODEL", "anthropic/claude-haiku-4.5")
     
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
@@ -2420,10 +2422,11 @@ async def get_settings():
             "API_BASE_URL":     db.get("API_BASE_URL") or str(API_BASE_URL),
             "API_KEY":          _mask_key(api_key_raw),
             "DEFAULT_MODEL":    db.get("DEFAULT_MODEL") or str(DEFAULT_MODEL),
+            "TOOL_MODEL":       db.get("TOOL_MODEL") or str(TOOL_MODEL),
+            "SUMMARY_MODEL":    db.get("SUMMARY_MODEL") or str(SUMMARY_MODEL),
 
             # 记忆系统
             "MEMORY_ENABLED":          _parse_bool(db.get("MEMORY_ENABLED"), MEMORY_ENABLED),
-            "MEMORY_MODEL":            db.get("MEMORY_MODEL") or os.environ.get("MEMORY_MODEL", ""),
             "MAX_MEMORIES_INJECT":     int(db.get("MAX_MEMORIES_INJECT") or MAX_MEMORIES_INJECT),
             "MIN_SCORE_THRESHOLD":     float(db.get("MIN_SCORE_THRESHOLD") or _db_module.MIN_SCORE_THRESHOLD),
             "MEMORY_EXTRACT_INTERVAL": int(db.get("MEMORY_EXTRACT_INTERVAL") or MEMORY_EXTRACT_INTERVAL),
@@ -2474,6 +2477,8 @@ async def save_settings(request: Request):
             "API_BASE_URL":          str,
             "API_KEY":               str,
             "DEFAULT_MODEL":         str,
+            "TOOL_MODEL":            str,
+            "SUMMARY_MODEL":         str,
             "MEMORY_ENABLED":        lambda v: _parse_bool(v),
             "MAX_MEMORIES_INJECT":   int,
             "MEMORY_EXTRACT_INTERVAL": int,
@@ -2500,7 +2505,7 @@ async def save_settings(request: Request):
         }
 
         # 只存 os.environ 的变量
-        _ENV_ONLY = {"MEMORY_MODEL": str}
+        _ENV_ONLY = {}
 
         # 打码字段
         _MASKED_KEYS = {"API_KEY", "EMBEDDING_API_KEY"}
