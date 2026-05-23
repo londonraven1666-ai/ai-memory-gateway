@@ -475,7 +475,7 @@ async def generate_summary(messages: list, session_id: str = "") -> str:
         
         async with httpx.AsyncClient(timeout=60) as client:
             response = await client.post(API_BASE_URL, headers=headers, json={
-                "model": CACHE_SUMMARY_MODEL,
+                "model": TOOL_MODEL if TOOL_MODEL else CACHE_SUMMARY_MODEL,
                 "max_tokens": 500,
                 "messages": [{"role": "user", "content": prompt}],
             })
@@ -1609,7 +1609,7 @@ async def consolidate_memories_for_date_range(start_date, end_date):
     prompt = CONSOLIDATION_PROMPT.format(fragments=fragments_text)
     
     # 使用默认模型，默认 haiku 节省成本
-    consolidation_model = os.getenv("DEFAULT_MODEL", "anthropic/claude-haiku-4.5")
+    consolidation_model = TOOL_MODEL if TOOL_MODEL else DEFAULT_MODEL
     
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
