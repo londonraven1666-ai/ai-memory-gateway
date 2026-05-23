@@ -133,7 +133,11 @@ API_BASE_URL = os.getenv("API_BASE_URL", "https://openrouter.ai/api/v1/chat/comp
 # 默认模型（如果客户端没指定就用这个）
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "anthropic/claude-sonnet-4")
 TOOL_MODEL = os.getenv("TOOL_MODEL", "")
+TOOL_API_BASE_URL = os.getenv("TOOL_API_BASE_URL", "")
+TOOL_API_KEY = os.getenv("TOOL_API_KEY", "")
 SUMMARY_MODEL = os.getenv("SUMMARY_MODEL", "")
+SUMMARY_API_BASE_URL = os.getenv("SUMMARY_API_BASE_URL", "")
+SUMMARY_API_KEY = os.getenv("SUMMARY_API_KEY", "")
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
 
 # 网关端口
@@ -271,7 +275,11 @@ async def lifespan(app: FastAPI):
                     "API_KEY":               str,
                     "DEFAULT_MODEL":         str,
                     "TOOL_MODEL":            str,
+                    "TOOL_API_BASE_URL":     str,
+                    "TOOL_API_KEY":          str,
                     "SUMMARY_MODEL":         str,
+                    "SUMMARY_API_BASE_URL":  str,
+                    "SUMMARY_API_KEY":       str,
                     "MEMORY_ENABLED":        lambda v: _parse_bool(v),
                     "MAX_MEMORIES_INJECT":   int,
                     "MEMORY_EXTRACT_INTERVAL": int,
@@ -2527,6 +2535,8 @@ async def get_settings(request: Request):
 
         # --- 基础连接 ---
         api_key_raw = db.get("API_KEY") or API_KEY
+        tool_key_raw = db.get("TOOL_API_KEY") or TOOL_API_KEY
+        summary_key_raw = db.get("SUMMARY_API_KEY") or SUMMARY_API_KEY
         embedding_key_raw = db.get("EMBEDDING_API_KEY") or _db_module.EMBEDDING_API_KEY
 
         settings = {
@@ -2535,7 +2545,11 @@ async def get_settings(request: Request):
             "API_KEY":          _mask_key(api_key_raw),
             "DEFAULT_MODEL":    db.get("DEFAULT_MODEL") or str(DEFAULT_MODEL),
             "TOOL_MODEL":       db.get("TOOL_MODEL") or str(TOOL_MODEL),
+            "TOOL_API_BASE_URL": db.get("TOOL_API_BASE_URL") or str(TOOL_API_BASE_URL),
+            "TOOL_API_KEY":     _mask_key(tool_key_raw),
             "SUMMARY_MODEL":    db.get("SUMMARY_MODEL") or str(SUMMARY_MODEL),
+            "SUMMARY_API_BASE_URL": db.get("SUMMARY_API_BASE_URL") or str(SUMMARY_API_BASE_URL),
+            "SUMMARY_API_KEY":  _mask_key(summary_key_raw),
 
             # 记忆系统
             "MEMORY_ENABLED":          _parse_bool(db.get("MEMORY_ENABLED"), MEMORY_ENABLED),
@@ -2591,7 +2605,11 @@ async def save_settings(request: Request):
             "API_KEY":               str,
             "DEFAULT_MODEL":         str,
             "TOOL_MODEL":            str,
+            "TOOL_API_BASE_URL":     str,
+            "TOOL_API_KEY":          str,
             "SUMMARY_MODEL":         str,
+            "SUMMARY_API_BASE_URL":  str,
+            "SUMMARY_API_KEY":       str,
             "MEMORY_ENABLED":        lambda v: _parse_bool(v),
             "MAX_MEMORIES_INJECT":   int,
             "MEMORY_EXTRACT_INTERVAL": int,
@@ -2621,7 +2639,7 @@ async def save_settings(request: Request):
         _ENV_ONLY = {}
 
         # 打码字段
-        _MASKED_KEYS = {"API_KEY", "EMBEDDING_API_KEY"}
+        _MASKED_KEYS = {"API_KEY", "TOOL_API_KEY", "SUMMARY_API_KEY", "EMBEDDING_API_KEY"}
 
         for key, value in data.items():
             # --- 打码字段特殊处理 ---
