@@ -19,7 +19,7 @@ import asyncio
 import httpx
 from datetime import datetime, timedelta, timezone
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import StreamingResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -134,6 +134,7 @@ API_BASE_URL = os.getenv("API_BASE_URL", "https://openrouter.ai/api/v1/chat/comp
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "anthropic/claude-sonnet-4")
 TOOL_MODEL = os.getenv("TOOL_MODEL", "")
 SUMMARY_MODEL = os.getenv("SUMMARY_MODEL", "")
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
 
 # 网关端口
 PORT = int(os.getenv("PORT", "8080"))
@@ -2407,9 +2408,18 @@ def _parse_bool(val, fallback=False) -> bool:
     return str(val).lower() in ("true", "1", "yes")
 
 
+async def verify_admin(request: Request):
+    if not ADMIN_TOKEN:
+        return
+    auth = request.headers.get("Authorization", "")
+    if auth != f"Bearer {ADMIN_TOKEN}":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
 @app.get("/api/settings")
-async def get_settings():
+async def get_settings(request: Request):
     """获取高级设置（数据库优先，fallback 到环境变量/运行时默认值）"""
+    await verify_admin(request)
     try:
         db = await get_all_gateway_config()
 
@@ -2467,6 +2477,7 @@ async def get_settings():
 @app.put("/api/settings")
 async def save_settings(request: Request):
     """保存高级设置（写入数据库 + 热更新运行时变量，立即生效无需重启）"""
+    await verify_admin(request)
     try:
         data = await request.json()
         updated = []
