@@ -153,6 +153,16 @@ async def init_tables():
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_gateway_activity_time ON gateway_activity(time DESC);
         """)
+
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS pending_memories (
+                id BIGSERIAL PRIMARY KEY,
+                content TEXT NOT NULL,
+                suggested_type TEXT,
+                status TEXT DEFAULT 'pending',
+                created_at TIMESTAMPTZ DEFAULT now()
+            );
+        """)
         
         # 分区缓存状态表（存储每个session的轮转状态）
         await conn.execute("""

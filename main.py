@@ -2483,6 +2483,41 @@ async def get_activity(request: Request, limit: int = 50):
     return {"events": [dict(row) for row in rows]}
 
 
+@app.get("/api/memory/pending")
+async def get_pending_memories(request: Request):
+    await verify_admin(request)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("SELECT * FROM pending_memories WHERE status='pending'")
+    return {"events": [dict(row) for row in rows]}
+
+
+@app.post("/api/memory/confirm")
+async def confirm_pending_memory(request: Request):
+    await verify_admin(request)
+    body = await request.json()
+    pending_id = body.get("id")
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT * FROM pending_memories WHERE id=$1 AND status='pending'", pending_id)
+        if not row:
+            return {"error": "not found"}
+        memory_id = await save_memory(content=row["content"], importance=5, source_session="pending_memory")
+        await conn.execute("UPDATE pending_memories SET status='confirmed' WHERE id=$1", pending_id)
+    return {"status": "confirmed", "id": pending_id, "memory_id": memory_id}
+
+
+@app.post("/api/memory/discard")
+async def discard_pending_memory(request: Request):
+    await verify_admin(request)
+    body = await request.json()
+    pending_id = body.get("id")
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute("UPDATE pending_memories SET status='discarded' WHERE id=$1 AND status='pending'", pending_id)
+    return {"status": "discarded", "id": pending_id, "result": result}
+
+
 @app.get("/api/settings")
 async def get_settings(request: Request):
     """获取高级设置（数据库优先，fallback 到环境变量/运行时默认值）"""
