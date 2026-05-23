@@ -266,10 +266,43 @@ async def lifespan(app: FastAPI):
             # Load saved settings from database
             try:
                 db_config = await get_all_gateway_config()
-                for key in ["API_KEY", "API_BASE_URL", "DEFAULT_MODEL", "TOOL_MODEL", "SUMMARY_MODEL"]:
+                _RESTORE_MAIN_VARS = {
+                    "API_BASE_URL":          str,
+                    "API_KEY":               str,
+                    "DEFAULT_MODEL":         str,
+                    "TOOL_MODEL":            str,
+                    "SUMMARY_MODEL":         str,
+                    "MEMORY_ENABLED":        lambda v: _parse_bool(v),
+                    "MAX_MEMORIES_INJECT":   int,
+                    "MEMORY_EXTRACT_INTERVAL": int,
+                    "CACHE_PARTITION_ENABLED": lambda v: _parse_bool(v),
+                    "CACHE_PARTITION_X":     int,
+                    "CACHE_SUMMARY_MODEL":   str,
+                    "FORCE_STREAM":          lambda v: _parse_bool(v),
+                    "REASONING_EFFORT":      str,
+                }
+                _RESTORE_DB_VARS = {
+                    "EMBEDDING_API_KEY":       str,
+                    "EMBEDDING_BASE_URL":      str,
+                    "EMBEDDING_MODEL":         str,
+                    "EMBEDDING_DIM":           int,
+                    "MIN_SCORE_THRESHOLD":     float,
+                    "MEMORY_VECTOR_ENABLED":   lambda v: _parse_bool(v),
+                    "MEMORY_HW_KEYWORD":       float,
+                    "MEMORY_HW_SEMANTIC":      float,
+                    "MEMORY_HW_IMPORTANCE":    float,
+                    "MEMORY_HW_RECENCY":       float,
+                    "MEMORY_SEMANTIC_THRESHOLD": float,
+                }
+                for key, caster in _RESTORE_MAIN_VARS.items():
                     val = db_config.get(key)
                     if val:
-                        globals()[key] = val
+                        globals()[key] = caster(val)
+                        print(f"📦 Loaded {key} from database" + (" (masked)" if "KEY" in key else f": {val[:30]}"))
+                for key, caster in _RESTORE_DB_VARS.items():
+                    val = db_config.get(key)
+                    if val:
+                        setattr(_db_module, key, caster(val))
                         print(f"📦 Loaded {key} from database" + (" (masked)" if "KEY" in key else f": {val[:30]}"))
             except Exception as e:
                 print(f"⚠️ Failed to load config from database: {e}")
