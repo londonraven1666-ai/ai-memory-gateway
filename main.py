@@ -2469,6 +2469,20 @@ async def get_status(request: Request):
     }
 
 
+@app.get("/api/activity")
+async def get_activity(request: Request, limit: int = 50):
+    await verify_admin(request)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT *
+            FROM gateway_activity
+            ORDER BY time DESC
+            LIMIT $1
+        """, limit)
+    return {"events": [dict(row) for row in rows]}
+
+
 @app.get("/api/settings")
 async def get_settings(request: Request):
     """获取高级设置（数据库优先，fallback 到环境变量/运行时默认值）"""

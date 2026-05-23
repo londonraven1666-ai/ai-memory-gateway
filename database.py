@@ -150,6 +150,9 @@ async def init_tables():
                 created_at TIMESTAMPTZ DEFAULT now()
             );
         """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_gateway_activity_time ON gateway_activity(time DESC);
+        """)
         
         # 分区缓存状态表（存储每个session的轮转状态）
         await conn.execute("""
