@@ -495,6 +495,92 @@ body {
 }
 
 /* ============================================
+   待审记忆
+   ============================================ */
+.pending-card {
+    margin-bottom: 16px;
+}
+
+.pending-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.pending-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 16px;
+    background: var(--bg);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+}
+
+.pending-main {
+    min-width: 0;
+    flex: 1;
+}
+
+.pending-content {
+    margin-bottom: 8px;
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+.pending-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.pending-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.pending-empty {
+    padding: 24px 0;
+    color: var(--text-muted);
+    font-size: 14px;
+    text-align: center;
+}
+
+.pending-extract-row {
+    display: grid;
+    grid-template-columns: minmax(160px, 1fr) minmax(160px, 1fr) auto;
+    align-items: end;
+    gap: 12px;
+}
+
+.pending-extract-row .form-group {
+    margin-bottom: 0;
+}
+
+@media (max-width: 760px) {
+    .pending-item {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .pending-actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .pending-extract-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ============================================
    消息提示
    ============================================ */
 .msg-container {

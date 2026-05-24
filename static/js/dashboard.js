@@ -131,6 +131,9 @@ function switchSection(name) {
     if (name === 'status') {
         loadStatusPanel();
     }
+    if (name === 'pending') {
+        loadPendingMemories();
+    }
     if (name === 'settings') {
         loadSettings();
     }
@@ -202,6 +205,140 @@ function renderActivityType(type) {
     const layerMap = { message: 1, memory: 2, model: 3, reply: 3 };
     const layer = layerMap[type] || 1;
     return `<span class="layer-badge layer-${layer}">${escHtml(type || '-')}</span>`;
+}
+
+// ============================================
+// 待审记忆
+// ============================================
+async function loadPendingMemories() {
+    const list = document.getElementById('pending-list');
+    const countEl = document.getElementById('pending-count');
+    if (!list) return;
+    list.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:24px 0;">加载中...</div>';
+    try {
+        const resp = await fetch(_pfx + '/api/memory/pending', { headers: getAdminHeaders() });
+        const data = await resp.json();
+        if (data.error) {
+            showPendingMsg('error', '加载失败：' + data.error);
+            list.innerHTML = '';
+            if (countEl) countEl.textContent = '待审 0 条';
+            return;
+        }
+        const items = data.events || [];
+        if (countEl) countEl.textContent = '待审 ' + items.length + ' 条';
+        renderPendingMemories(items);
+    } catch (e) {
+        showPendingMsg('error', '加载失败：' + e.message);
+        list.innerHTML = '';
+        if (countEl) countEl.textContent = '待审 0 条';
+    }
+}
+
+function renderPendingMemories(items) {
+    const list = document.getElementById('pending-list');
+    if (!list) return;
+    if (!items.length) {
+        list.innerHTML = '<div class="pending-empty">暂无待审记忆</div>';
+        return;
+    }
+    list.innerHTML = items.map(item => `
+        <div class="pending-item" data-id="${item.id}">
+            <div class="pending-main">
+                <div class="pending-content">${escHtml(item.content || '')}</div>
+                <div class="pending-meta">
+                    <span class="layer-badge layer-2">${escHtml(item.suggested_type || '未分类')}</span>
+                    <span>${fmtTime(item.created_at)}</span>
+                </div>
+            </div>
+            <div class="pending-actions">
+                <button class="btn btn-sm btn-primary" onclick="confirmPendingMemory(${item.id})">✓ 确认</button>
+                <button class="btn btn-sm btn-danger" onclick="discardPendingMemory(${item.id})">✗ 丢弃</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function confirmPendingMemory(id) {
+    await updatePendingMemory(id, '/api/memory/confirm', '已确认');
+}
+
+async function discardPendingMemory(id) {
+    await updatePendingMemory(id, '/api/memory/discard', '已丢弃');
+}
+
+async function updatePendingMemory(id, endpoint, successText) {
+    try {
+        const resp = await fetch(_pfx + endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...getAdminHeaders() },
+            body: JSON.stringify({ id })
+        });
+        const data = await resp.json();
+        if (data.error) {
+            showPendingMsg('error', data.error);
+            return;
+        }
+        const item = document.querySelector(`.pending-item[data-id="${id}"]`);
+        if (item) item.remove();
+        updatePendingCountAfterRemove();
+        showPendingMsg('success', successText);
+        const list = document.getElementById('pending-list');
+        if (list && !list.querySelector('.pending-item')) {
+            list.innerHTML = '<div class="pending-empty">暂无待审记忆</div>';
+        }
+    } catch (e) {
+        showPendingMsg('error', '操作失败：' + e.message);
+    }
+}
+
+function updatePendingCountAfterRemove() {
+    const countEl = document.getElementById('pending-count');
+    const remaining = document.querySelectorAll('.pending-item').length;
+    if (countEl) countEl.textContent = '待审 ' + remaining + ' 条';
+}
+
+async function extractPendingMemories() {
+    const btn = document.getElementById('pending-extract-btn');
+    const start = document.getElementById('pending-start-date')?.value || '';
+    const end = document.getElementById('pending-end-date')?.value || '';
+    const msgEl = document.getElementById('pending-extract-msg');
+    if (!start || !end) {
+        if (msgEl) msgEl.innerHTML = '<div class="msg msg-error">请选择开始和结束日期</div>';
+        return;
+    }
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '提取中...';
+    }
+    if (msgEl) msgEl.innerHTML = '';
+    try {
+        const resp = await fetch(_pfx + '/api/memory/extract', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...getAdminHeaders() },
+            body: JSON.stringify({ start_date: start, end_date: end })
+        });
+        const data = await resp.json();
+        if (data.error) {
+            if (msgEl) msgEl.innerHTML = `<div class="msg msg-error">提取失败：${escHtml(data.error)}</div>`;
+            return;
+        }
+        if (msgEl) msgEl.innerHTML = `<div class="msg msg-success">已提取 ${data.extracted || 0} 条</div>`;
+        await loadPendingMemories();
+    } catch (e) {
+        if (msgEl) msgEl.innerHTML = `<div class="msg msg-error">提取失败：${escHtml(e.message)}</div>`;
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = '提取';
+        }
+    }
+}
+
+function showPendingMsg(type, text) {
+    const el = document.getElementById('pending-msg');
+    if (!el) return;
+    el.innerHTML = `<div class="msg msg-${type}">${escHtml(text)}</div>`;
+    setTimeout(() => { el.innerHTML = ''; }, 3000);
 }
 
 // ============================================
