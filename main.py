@@ -388,6 +388,83 @@ def append_to_system_context(messages: list, text: str):
         messages.insert(0, {"role": "system", "content": text})
 
 
+async def extract_pending_memories(session_id, user_message, assistant_reply, model):
+    try:
+        tool_model = await get_gateway_config("TOOL_MODEL", "") or os.getenv("TOOL_MODEL", "")
+        if not tool_model:
+            print("ℹ️ pending memory extraction skipped: TOOL_MODEL not set")
+            return 0
+
+        prompt = f"""请从这轮对话中提取值得长期记住的事实、偏好、事件或情绪状态。
+只提取稳定、具体、以后有用的信息。不要提取寒暄、临时措辞、系统行为或重复内容。
+返回 JSON 数组。每条包含：
+- content: 具体记忆内容
+- category: event / preference / fact / emotion
+
+如果没有值得长期记住的信息，返回 []。
+
+用户：
+{user_message or ""}
+
+助手：
+{assistant_reply or ""}
+
+JSON："""
+
+        headers = {
+            "Authorization": f"Bearer {API_KEY}",
+            "Content-Type": "application/json",
+        }
+        if "openrouter" in API_BASE_URL:
+            headers["HTTP-Referer"] = EXTRA_REFERER
+            headers["X-Title"] = EXTRA_TITLE
+
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(API_BASE_URL, headers=headers, json={
+                "model": tool_model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 800,
+            })
+        if response.status_code != 200:
+            print(f"⚠️ pending memory extraction failed: HTTP {response.status_code}")
+            return 0
+
+        content = response.json().get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+        try:
+            items = json.loads(content)
+        except Exception:
+            import re as _re
+            match = _re.search(r'\[[\s\S]*\]', content)
+            if not match:
+                return 0
+            items = json.loads(match.group())
+
+        if not isinstance(items, list) or not items:
+            return 0
+
+        inserted = 0
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                mem_content = str(item.get("content", "")).strip()
+                category = str(item.get("category", "")).strip()
+                if not mem_content:
+                    continue
+                await conn.execute(
+                    "INSERT INTO pending_memories (content, suggested_type, status) VALUES ($1, $2, 'pending')",
+                    mem_content, category
+                )
+                inserted += 1
+        if inserted:
+            print(f"🧠 pending memories extracted: {inserted} (session={session_id})")
+        return inserted
+    except Exception as e:
+        print(f"⚠️ pending memory extraction error: {e}")
+        return 0
+
+
 async def build_system_prompt_with_memories(user_message: str, session_id: str = None) -> str:
     """
     构建带记忆的 system prompt
@@ -1332,6 +1409,7 @@ async def chat_completions(request: Request):
                     await log_activity("reply", f"回复完成：↑{input_tokens} ↓{output_tokens}", session_id=session_id)
                 except Exception as e:
                     print(f"⚠️ activity log failed: {e}")
+                asyncio.create_task(extract_pending_memories(session_id, user_message, assistant_msg, model))
                 
                 return JSONResponse(status_code=200, content=resp_data)
             else:
@@ -1446,6 +1524,7 @@ async def stream_and_capture(headers: dict, body: dict, session_id: str, user_me
         await log_activity("reply", f"回复完成：↑{pt} ↓{ct}", session_id=session_id)
     except Exception as e:
         print(f"⚠️ activity log failed: {e}")
+    asyncio.create_task(extract_pending_memories(session_id, user_message, assistant_msg, model))
     
     if MEMORY_ENABLED and (user_message or tool_messages):
         asyncio.create_task(
