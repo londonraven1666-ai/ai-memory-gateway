@@ -2727,6 +2727,31 @@ async def get_pending_memories(request: Request):
     return {"events": [dict(row) for row in rows]}
 
 
+@app.post("/api/memory/extract")
+async def extract_memory_range(request: Request):
+    await verify_admin(request)
+    body = await request.json()
+    start_date = body.get("start_date", "")
+    end_date = body.get("end_date", "")
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT role, content, created_at
+            FROM conversations
+            WHERE role IN ('user', 'assistant')
+              AND created_at >= $1::timestamptz
+              AND created_at <= $2::timestamptz
+            ORDER BY created_at ASC
+        """, start_date, end_date)
+
+    conversation = "\n".join(
+        f"[{r['created_at']}] {r['role']}: {r['content'] or ''}"
+        for r in rows
+    )
+    count = await extract_pending_memories("manual_extract", conversation, "", "manual")
+    return {"extracted": count}
+
+
 @app.post("/api/memory/confirm")
 async def confirm_pending_memory(request: Request):
     await verify_admin(request)
