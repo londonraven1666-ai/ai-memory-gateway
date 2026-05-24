@@ -1205,6 +1205,10 @@ async def chat_completions(request: Request):
         # Gateway tools: tag-based (parsed from response)
         
         async with httpx.AsyncClient(timeout=300) as client:
+            try:
+                await log_activity("model", f"调模型：{model}", session_id=session_id)
+            except Exception as e:
+                print(f"⚠️ activity log failed: {e}")
             response = await client.post(API_BASE_URL, headers=headers, json=body)
             
             if response.status_code == 200:
@@ -1343,6 +1347,10 @@ async def stream_and_capture(headers: dict, body: dict, session_id: str, user_me
     accumulated_tool_calls = {}  # index -> {id, type, function: {name, arguments}}
     
     async with httpx.AsyncClient(timeout=300) as client:
+        try:
+            await log_activity("model", f"调模型(stream)：{model}", session_id=session_id)
+        except Exception as e:
+            print(f"⚠️ activity log failed: {e}")
         async with client.stream("POST", API_BASE_URL, headers=headers, json=body) as response:
             # 打印上游响应头（排查thinking问题用）
             upstream_ct = response.headers.get("content-type", "")
