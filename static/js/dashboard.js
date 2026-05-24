@@ -2049,6 +2049,7 @@ function updateBackfillProgress(done, total) {
 
 let _settingsLoaded = false;
 let _modelList = [];
+let _mcpServers = [];
 
 // 所有需要读写的字段 key（开源版：EMBEDDING_API_KEY + EMBEDDING_BASE_URL）
 const _SETTINGS_FIELDS = {
@@ -2110,6 +2111,8 @@ async function loadSettings() {
         // REASONING_EFFORT 下拉
         const reEl = document.getElementById('set-REASONING_EFFORT');
         if (reEl) reEl.value = s.REASONING_EFFORT || '';
+
+        renderMcpServers(s);
 
         // 加载模型列表（首次）
         if (!_settingsLoaded) loadModelList();
@@ -2263,6 +2266,131 @@ function updatePromptCount() {
     const el = document.getElementById('set-systemPrompt');
     const hint = document.getElementById('prompt-char-count');
     if (el && hint) hint.textContent = el.value.length + ' 字';
+}
+
+function getMcpServersFromSettings(settings) {
+    if (!settings) return [];
+    const raw = settings.mcp_servers || settings.MCP_SERVERS || settings.mcpServers || settings.mcp;
+    let servers = [];
+
+    if (Array.isArray(raw)) {
+        servers = raw;
+    } else if (typeof raw === 'string' && raw.trim()) {
+        try {
+            const parsed = JSON.parse(raw);
+            servers = Array.isArray(parsed)
+                ? parsed
+                : Object.entries(parsed).map(([name, value]) => ({ name, ...(typeof value === 'object' ? value : { url: value }) }));
+        } catch (e) {
+            servers = raw.split(',').map((url, i) => ({ name: 'mcp-' + (i + 1), url: url.trim() })).filter(s => s.url);
+        }
+    } else if (raw && typeof raw === 'object') {
+        servers = Object.entries(raw).map(([name, value]) => ({ name, ...(typeof value === 'object' ? value : { url: value }) }));
+    }
+
+    Object.keys(settings).forEach(key => {
+        const match = key.match(/^MCP_(.+)_URL$/i) || key.match(/^mcp_(.+)_url$/i);
+        if (!match || !settings[key]) return;
+        const name = match[1].toLowerCase();
+        if (!servers.some(s => (s.name || '').toLowerCase() === name || s.url === settings[key])) {
+            servers.push({ name, url: settings[key] });
+        }
+    });
+
+    return servers.map((server, index) => {
+        const name = String(server.name || server.id || server.label || 'mcp-' + (index + 1));
+        const disabledValue = settings['mcp_disabled_' + name];
+        const disabled = disabledValue === true || String(disabledValue || '').toLowerCase() === 'true' || server.enabled === false;
+        return {
+            name,
+            url: String(server.url || server.endpoint || server.base_url || server.baseUrl || ''),
+            enabled: !disabled,
+        };
+    }).filter(server => server.url);
+}
+
+function renderMcpServers(settings) {
+    const tbody = document.getElementById('mcp-servers-tbody');
+    if (!tbody) return;
+    _mcpServers = getMcpServersFromSettings(settings);
+    if (!_mcpServers.length) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);">暂无 MCP server 配置</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = _mcpServers.map((server, index) => `
+        <tr>
+            <td>${escHtml(server.name)}</td>
+            <td class="mcp-url">${escHtml(server.url)}</td>
+            <td id="mcp-status-${index}"><span class="layer-badge layer-1">未测试</span></td>
+            <td class="col-actions">
+                <div class="mcp-actions">
+                    <button class="btn btn-sm" id="mcp-test-${index}" onclick="testMcpServer(${index})">测试</button>
+                    <label class="toggle" title="启用/禁用">
+                        <input type="checkbox" id="mcp-toggle-${index}" ${server.enabled ? 'checked' : ''} onchange="toggleMcpServer(${index}, this.checked)">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+}
+
+async function testMcpServer(index) {
+    const server = _mcpServers[index];
+    const btn = document.getElementById('mcp-test-' + index);
+    const statusEl = document.getElementById('mcp-status-' + index);
+    if (!server || !statusEl) return;
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '测试中...';
+    }
+    statusEl.innerHTML = '<span class="layer-badge layer-1">测试中</span>';
+    try {
+        const resp = await fetch(_pfx + '/api/mcp/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...getAdminHeaders() },
+            body: JSON.stringify({ url: server.url })
+        });
+        const data = await resp.json();
+        if (data.status === 'online') {
+            statusEl.innerHTML = `<span class="layer-badge layer-2">online ${data.latency_ms ?? '-'}ms</span>`;
+        } else {
+            statusEl.innerHTML = `<span class="layer-badge layer-3">offline</span><span class="mcp-status-detail">${escHtml(data.error || '未知错误')}</span>`;
+        }
+    } catch (e) {
+        statusEl.innerHTML = `<span class="layer-badge layer-3">offline</span><span class="mcp-status-detail">${escHtml(e.message)}</span>`;
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = '测试';
+        }
+    }
+}
+
+async function toggleMcpServer(index, enabled) {
+    const server = _mcpServers[index];
+    const toggle = document.getElementById('mcp-toggle-' + index);
+    const oldEnabled = server?.enabled;
+    if (!server) return;
+    try {
+        const resp = await fetch(_pfx + '/api/mcp/toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...getAdminHeaders() },
+            body: JSON.stringify({ name: server.name, enabled })
+        });
+        const data = await resp.json();
+        if (data.error) {
+            showSettingsMsg('error', 'MCP 更新失败: ' + data.error);
+            if (toggle) toggle.checked = !!oldEnabled;
+            return;
+        }
+        server.enabled = enabled;
+        showSettingsMsg('success', `${server.name} 已${enabled ? '启用' : '禁用'}`);
+    } catch (e) {
+        showSettingsMsg('error', 'MCP 更新失败: ' + e.message);
+        if (toggle) toggle.checked = !!oldEnabled;
+    }
 }
 
 // 绑定 prompt 字数实时更新

@@ -683,6 +683,27 @@
                     </div>
                 </div>
 
+                <!-- MCP 管理 -->
+                <div class="card settings-card">
+                    <h3 class="settings-group-title">MCP 管理</h3>
+                    <div class="mcp-table-wrap">
+                        <table class="data-table mcp-table">
+                            <thead>
+                                <tr>
+                                    <th>名称</th>
+                                    <th>URL</th>
+                                    <th>状态</th>
+                                    <th class="col-actions">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="mcp-servers-tbody">
+                                <tr><td colspan="4" style="text-align:center;color:var(--text-muted);">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <small class="form-hint">MCP server 列表来自当前设置数据。</small>
+                </div>
+
                 <!-- 保存按钮 -->
                 <div style="text-align:center; padding:24px 0 40px;">
                     <button class="btn btn-primary btn-lg" onclick="saveSettings()" id="save-settings-btn" style="min-width:200px;">保存设置</button>
