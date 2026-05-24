@@ -2157,6 +2157,8 @@ async function saveSettings() {
     // 长文本
     const promptEl = document.getElementById('set-systemPrompt');
     if (promptEl) payload.systemPrompt = promptEl.value;
+    const mcpServers = collectMcpServersForSave();
+    if (mcpServers.length) payload.MCP_SERVERS = JSON.stringify(mcpServers);
 
     try {
         const resp = await fetch(_pfx + '/api/settings', {
@@ -2271,6 +2273,7 @@ function updatePromptCount() {
 function getMcpServersFromSettings(settings) {
     if (!settings) return [];
     const raw = settings.mcp_servers || settings.MCP_SERVERS || settings.mcpServers || settings.mcp;
+    const disabledMap = settings.MCP_DISABLED || settings.mcp_disabled || {};
     let servers = [];
 
     if (Array.isArray(raw)) {
@@ -2299,7 +2302,7 @@ function getMcpServersFromSettings(settings) {
 
     return servers.map((server, index) => {
         const name = String(server.name || server.id || server.label || 'mcp-' + (index + 1));
-        const disabledValue = settings['mcp_disabled_' + name];
+        const disabledValue = disabledMap[name] ?? settings['mcp_disabled_' + name];
         const disabled = disabledValue === true || String(disabledValue || '').toLowerCase() === 'true' || server.enabled === false;
         return {
             name,
@@ -2321,7 +2324,7 @@ function renderMcpServers(settings) {
     tbody.innerHTML = _mcpServers.map((server, index) => `
         <tr>
             <td>${escHtml(server.name)}</td>
-            <td class="mcp-url">${escHtml(server.url)}</td>
+            <td><input type="text" class="input mcp-url-input" id="mcp-url-${index}" value="${escHtml(server.url)}" onchange="updateMcpServerUrl(${index}, this.value)"></td>
             <td id="mcp-status-${index}"><span class="layer-badge layer-1">未测试</span></td>
             <td class="col-actions">
                 <div class="mcp-actions">
@@ -2336,8 +2339,24 @@ function renderMcpServers(settings) {
     `).join('');
 }
 
+function updateMcpServerUrl(index, value) {
+    if (_mcpServers[index]) _mcpServers[index].url = value.trim();
+}
+
+function collectMcpServersForSave() {
+    return _mcpServers.map((server, index) => {
+        const urlEl = document.getElementById('mcp-url-' + index);
+        return {
+            name: server.name,
+            url: (urlEl ? urlEl.value : server.url).trim(),
+            enabled: server.enabled !== false,
+        };
+    }).filter(server => server.name && server.url);
+}
+
 async function testMcpServer(index) {
     const server = _mcpServers[index];
+    updateMcpServerUrl(index, document.getElementById('mcp-url-' + index)?.value || server?.url || '');
     const btn = document.getElementById('mcp-test-' + index);
     const statusEl = document.getElementById('mcp-status-' + index);
     if (!server || !statusEl) return;
@@ -2370,6 +2389,7 @@ async function testMcpServer(index) {
 
 async function toggleMcpServer(index, enabled) {
     const server = _mcpServers[index];
+    updateMcpServerUrl(index, document.getElementById('mcp-url-' + index)?.value || server?.url || '');
     const toggle = document.getElementById('mcp-toggle-' + index);
     const oldEnabled = server?.enabled;
     if (!server) return;

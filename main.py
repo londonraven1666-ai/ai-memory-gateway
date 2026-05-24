@@ -139,6 +139,7 @@ SUMMARY_MODEL = os.getenv("SUMMARY_MODEL", "")
 SUMMARY_API_BASE_URL = os.getenv("SUMMARY_API_BASE_URL", "")
 SUMMARY_API_KEY = os.getenv("SUMMARY_API_KEY", "")
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
+MCP_SERVERS = os.getenv("MCP_SERVERS", "")
 
 # 网关端口
 PORT = int(os.getenv("PORT", "8080"))
@@ -280,6 +281,7 @@ async def lifespan(app: FastAPI):
                     "SUMMARY_MODEL":         str,
                     "SUMMARY_API_BASE_URL":  str,
                     "SUMMARY_API_KEY":       str,
+                    "MCP_SERVERS":           str,
                     "MEMORY_ENABLED":        lambda v: _parse_bool(v),
                     "MAX_MEMORIES_INJECT":   int,
                     "MEMORY_EXTRACT_INTERVAL": int,
@@ -2827,6 +2829,8 @@ async def get_settings(request: Request):
             "SUMMARY_MODEL":    db.get("SUMMARY_MODEL") or str(SUMMARY_MODEL),
             "SUMMARY_API_BASE_URL": db.get("SUMMARY_API_BASE_URL") or str(SUMMARY_API_BASE_URL),
             "SUMMARY_API_KEY":  _mask_key(summary_key_raw),
+            "MCP_SERVERS":      db.get("MCP_SERVERS") or str(MCP_SERVERS),
+            "MCP_DISABLED":     {k.replace("mcp_disabled_", "", 1): v for k, v in db.items() if k.startswith("mcp_disabled_")},
 
             # 记忆系统
             "MEMORY_ENABLED":          _parse_bool(db.get("MEMORY_ENABLED"), MEMORY_ENABLED),
@@ -2887,6 +2891,7 @@ async def save_settings(request: Request):
             "SUMMARY_MODEL":         str,
             "SUMMARY_API_BASE_URL":  str,
             "SUMMARY_API_KEY":       str,
+            "MCP_SERVERS":           str,
             "MEMORY_ENABLED":        lambda v: _parse_bool(v),
             "MAX_MEMORIES_INJECT":   int,
             "MEMORY_EXTRACT_INTERVAL": int,

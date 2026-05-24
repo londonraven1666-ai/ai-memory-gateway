@@ -1442,11 +1442,9 @@ body {
     overflow-x: auto;
 }
 
-.mcp-table .mcp-url {
-    max-width: 360px;
-    color: var(--text-light);
+.mcp-url-input {
+    min-width: 260px;
     font-size: 13px;
-    overflow-wrap: anywhere;
 }
 
 .mcp-actions {
