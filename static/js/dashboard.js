@@ -51,6 +51,17 @@ if (_gatewayKey) {
     };
 }
 
+const _adminTokenParam = new URLSearchParams(window.location.search).get('admin_token') ||
+                         new URLSearchParams(window.location.search).get('adminToken') || '';
+if (_adminTokenParam) {
+    localStorage.setItem('adminToken', _adminTokenParam);
+}
+
+function getAdminHeaders() {
+    const token = _adminTokenParam || localStorage.getItem('adminToken') || '';
+    return token ? { 'Authorization': 'Bearer ' + token } : {};
+}
+
 // ============================================
 // 全局状态
 // ============================================
@@ -78,6 +89,8 @@ document.addEventListener('DOMContentLoaded', () => {
     loadMemories();
     // 加载导出统计
     loadExportStats();
+    // 加载状态监控
+    loadStatusPanel();
 });
 
 // ============================================
@@ -115,9 +128,80 @@ function switchSection(name) {
     if (name === 'threads') {
         loadThreads();
     }
+    if (name === 'status') {
+        loadStatusPanel();
+    }
     if (name === 'settings') {
         loadSettings();
     }
+}
+
+// ============================================
+// 状态监控
+// ============================================
+async function loadStatusPanel() {
+    await Promise.all([loadGatewayStatus(), loadActivityLog()]);
+}
+
+async function loadGatewayStatus() {
+    const msgEl = document.getElementById('status-msg');
+    try {
+        const resp = await fetch(_pfx + '/api/status', { headers: getAdminHeaders() });
+        const data = await resp.json();
+        if (data.error) {
+            if (msgEl) msgEl.innerHTML = `<div class="msg error">加载失败：${escHtml(data.error)}</div>`;
+            setGatewayStatusOffline();
+            return;
+        }
+        document.getElementById('status-gateway').textContent = data.gateway || 'offline';
+        document.getElementById('status-memory-count').textContent = data.memory_table ?? 0;
+        document.getElementById('status-today-tokens').textContent = data.today_tokens ?? 0;
+        document.getElementById('status-last-message').textContent = fmtTime(data.last_message);
+        if (msgEl) msgEl.innerHTML = '';
+    } catch (e) {
+        if (msgEl) msgEl.innerHTML = `<div class="msg error">加载失败：${escHtml(e.message)}</div>`;
+        setGatewayStatusOffline();
+    }
+}
+
+function setGatewayStatusOffline() {
+    const gatewayEl = document.getElementById('status-gateway');
+    if (gatewayEl) gatewayEl.textContent = 'offline';
+}
+
+async function loadActivityLog() {
+    const tbody = document.getElementById('activity-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);">加载中...</td></tr>';
+    try {
+        const resp = await fetch(_pfx + '/api/activity?limit=50', { headers: getAdminHeaders() });
+        const data = await resp.json();
+        if (data.error) {
+            tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--danger);">加载失败：${escHtml(data.error)}</td></tr>`;
+            return;
+        }
+        const events = data.events || [];
+        if (!events.length) {
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);">暂无活动</td></tr>';
+            return;
+        }
+        tbody.innerHTML = events.map(ev => `
+            <tr>
+                <td class="col-time">${fmtTime(ev.time || ev.created_at)}</td>
+                <td class="col-layer">${renderActivityType(ev.type)}</td>
+                <td>${escHtml(ev.summary || '')}</td>
+                <td class="col-source">${escHtml(ev.session_id || '-')}</td>
+            </tr>
+        `).join('');
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--danger);">加载失败：${escHtml(e.message)}</td></tr>`;
+    }
+}
+
+function renderActivityType(type) {
+    const layerMap = { message: 1, memory: 2, model: 3, reply: 3 };
+    const layer = layerMap[type] || 1;
+    return `<span class="layer-badge layer-${layer}">${escHtml(type || '-')}</span>`;
 }
 
 // ============================================
