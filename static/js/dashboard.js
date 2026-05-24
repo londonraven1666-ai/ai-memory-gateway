@@ -2053,7 +2053,7 @@ let _mcpServers = [];
 
 // 所有需要读写的字段 key（开源版：EMBEDDING_API_KEY + EMBEDDING_BASE_URL）
 const _SETTINGS_FIELDS = {
-    str: ['API_BASE_URL', 'API_KEY', 'DEFAULT_MODEL', 'MEMORY_MODEL',
+    str: ['API_BASE_URL', 'API_KEY', 'DEFAULT_MODEL', 'TOOL_MODEL', 'SUMMARY_MODEL', 'MEMORY_MODEL',
           'CACHE_SUMMARY_MODEL', 'EMBEDDING_API_KEY', 'EMBEDDING_BASE_URL', 'EMBEDDING_MODEL', 'REASONING_EFFORT'],
     int: ['MAX_MEMORIES_INJECT', 'MEMORY_EXTRACT_INTERVAL', 'CACHE_PARTITION_X', 'EMBEDDING_DIM'],
     float: ['MIN_SCORE_THRESHOLD'],
@@ -2063,11 +2063,11 @@ const _SETTINGS_FIELDS = {
     text: ['systemPrompt'],
 };
 
-const _MODEL_COMBOS = ['DEFAULT_MODEL', 'MEMORY_MODEL', 'CACHE_SUMMARY_MODEL'];
+const _MODEL_COMBOS = ['DEFAULT_MODEL', 'TOOL_MODEL', 'SUMMARY_MODEL', 'MEMORY_MODEL', 'CACHE_SUMMARY_MODEL'];
 
 async function loadSettings() {
     try {
-        const resp = await fetch(_pfx + '/api/settings');
+        const resp = await fetch(_pfx + '/api/settings', { headers: getAdminHeaders() });
         const data = await resp.json();
         if (data.error) { showSettingsMsg('error', '加载失败: ' + data.error); return; }
         const s = data.settings;
@@ -2161,7 +2161,7 @@ async function saveSettings() {
     try {
         const resp = await fetch(_pfx + '/api/settings', {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...getAdminHeaders() },
             body: JSON.stringify(payload)
         });
         const data = await resp.json();
