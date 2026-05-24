@@ -1960,6 +1960,7 @@ async function clearSummary() {
 // 记忆向量补算
 // ============================================
 let _backfillPollTimer = null;
+let _embedConvPollTimer = null;
 
 async function startBackfillMemoryEmbeddings() {
     const btn = document.getElementById('backfillMemBtn');
@@ -2037,6 +2038,72 @@ async function pollBackfillStatus() {
 function updateBackfillProgress(done, total) {
     const bar = document.getElementById('backfill-mem-bar');
     const text = document.getElementById('backfill-mem-text');
+    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+    bar.style.width = pct + '%';
+    text.textContent = `${done}/${total} (${pct}%)`;
+}
+
+async function startEmbedConversations() {
+    const btn = document.getElementById('embedConvBtn');
+    const progress = document.getElementById('embed-conv-progress');
+    const msgEl = document.getElementById('embed-conv-msg');
+    const startDate = document.getElementById('embed-conv-start')?.value || '';
+    const endDate = document.getElementById('embed-conv-end')?.value || '';
+
+    btn.disabled = true;
+    btn.textContent = '启动中...';
+    msgEl.innerHTML = '';
+
+    try {
+        const resp = await fetch(_pfx + '/api/admin/embed-conversations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...getAdminHeaders() },
+            body: JSON.stringify({ start_date: startDate, end_date: endDate })
+        });
+        const data = await resp.json();
+
+        if (data.error) {
+            msgEl.innerHTML = `<span style="color: var(--danger);">❌ ${data.error}</span>`;
+            btn.disabled = false;
+            btn.textContent = '开始补算';
+            return;
+        }
+
+        progress.style.display = 'block';
+        updateEmbedConvProgress(0, 0);
+        _embedConvPollTimer = setInterval(pollEmbedConversationsStatus, 2000);
+    } catch (e) {
+        msgEl.innerHTML = `<span style="color: var(--danger);">❌ ${e.message}</span>`;
+        btn.disabled = false;
+        btn.textContent = '开始补算';
+    }
+}
+
+async function pollEmbedConversationsStatus() {
+    try {
+        const resp = await fetch(_pfx + '/api/admin/embed-conversations/status', { headers: getAdminHeaders() });
+        const data = await resp.json();
+
+        updateEmbedConvProgress(data.done, data.total);
+
+        if (!data.running) {
+            clearInterval(_embedConvPollTimer);
+            _embedConvPollTimer = null;
+
+            const btn = document.getElementById('embedConvBtn');
+            const msgEl = document.getElementById('embed-conv-msg');
+            btn.disabled = false;
+            btn.textContent = '开始补算';
+            msgEl.innerHTML = `<span style="color: var(--success);">✅ 对话 embedding 完成！共处理 ${data.done} 条消息</span>`;
+        }
+    } catch (e) {
+        console.error('轮询对话 embedding 状态失败:', e);
+    }
+}
+
+function updateEmbedConvProgress(done, total) {
+    const bar = document.getElementById('embed-conv-bar');
+    const text = document.getElementById('embed-conv-text');
     const pct = total > 0 ? Math.round((done / total) * 100) : 0;
     bar.style.width = pct + '%';
     text.textContent = `${done}/${total} (${pct}%)`;

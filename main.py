@@ -2445,6 +2445,13 @@ _backfill_mem_status = {
     "finished_at": None,
 }
 
+_embed_conv_status = {
+    "running": False,
+    "total": 0,
+    "done": 0,
+    "error": None,
+}
+
 @app.post("/api/admin/backfill-memory-embeddings")
 async def api_backfill_memory_embeddings():
     """给已有记忆补算embedding（后台异步执行，前端轮询进度）"""
@@ -2499,6 +2506,80 @@ async def api_backfill_memory_embeddings_status():
         "done": _backfill_mem_status["done"],
         "error": _backfill_mem_status["error"],
         "finished_at": _backfill_mem_status["finished_at"],
+    }
+
+
+@app.post("/api/admin/embed-conversations")
+async def api_embed_conversations(request: Request):
+    """给 conversations 全量生成 embedding（后台异步执行，前端轮询进度）"""
+    await verify_admin(request)
+    if _embed_conv_status["running"]:
+        return {"error": "对话 embedding 任务正在运行中，请等待完成"}
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    start_date = body.get("start_date") or None
+    end_date = body.get("end_date") or None
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        total = await conn.fetchval("""
+            SELECT COUNT(*)
+            FROM conversations
+            WHERE content IS NOT NULL
+              AND content <> ''
+              AND ($1::timestamptz IS NULL OR created_at >= $1::timestamptz)
+              AND ($2::timestamptz IS NULL OR created_at <= $2::timestamptz)
+        """, start_date, end_date)
+
+    _embed_conv_status["running"] = True
+    _embed_conv_status["total"] = int(total or 0)
+    _embed_conv_status["done"] = 0
+    _embed_conv_status["error"] = None
+
+    async def run_embed_conversations():
+        try:
+            async with pool.acquire() as conn:
+                rows = await conn.fetch("""
+                    SELECT id, session_id, role, content
+                    FROM conversations
+                    WHERE content IS NOT NULL
+                      AND content <> ''
+                      AND ($1::timestamptz IS NULL OR created_at >= $1::timestamptz)
+                      AND ($2::timestamptz IS NULL OR created_at <= $2::timestamptz)
+                    ORDER BY created_at ASC
+                """, start_date, end_date)
+
+                for row in rows:
+                    embedding = await _db_module.compute_embedding(row["content"] or "")
+                    if embedding:
+                        vec_str = "[" + ",".join(str(f) for f in embedding) + "]"
+                        await conn.execute("""
+                            INSERT INTO conversation_embeddings
+                                (session_id, message_id, role, content_chunk, embedding)
+                            VALUES ($1, $2, $3, $4, $5::vector)
+                        """, row["session_id"], row["id"], row["role"], row["content"], vec_str)
+                    _embed_conv_status["done"] += 1
+        except Exception as e:
+            _embed_conv_status["error"] = str(e)
+            print(f"❌ 对话 embedding 任务异常: {e}")
+        finally:
+            _embed_conv_status["running"] = False
+
+    asyncio.create_task(run_embed_conversations())
+    return {"status": "started"}
+
+
+@app.get("/api/admin/embed-conversations/status")
+async def api_embed_conversations_status(request: Request):
+    """查询对话 embedding 任务进度"""
+    await verify_admin(request)
+    return {
+        "running": _embed_conv_status["running"],
+        "total": _embed_conv_status["total"],
+        "done": _embed_conv_status["done"],
     }
 
 

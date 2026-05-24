@@ -294,6 +294,18 @@ async def init_tables():
                 """)
             except Exception:
                 pass  # ivfflat需要一定行数才能建索引，初期跳过
+
+            await conn.execute(f"""
+                CREATE TABLE IF NOT EXISTS conversation_embeddings (
+                    id SERIAL PRIMARY KEY,
+                    session_id TEXT,
+                    message_id INTEGER,
+                    role TEXT,
+                    content_chunk TEXT,
+                    embedding vector({EMBEDDING_DIM}),
+                    created_at TIMESTAMPTZ DEFAULT now()
+                );
+            """)
         except Exception as e:
             HAS_PGVECTOR = False
             print(f"⚠️ pgvector不可用（{e}），向量搜索将使用Python端计算")

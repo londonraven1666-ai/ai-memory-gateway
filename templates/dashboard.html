@@ -243,6 +243,25 @@
                     </div>
                     <div id="backfill-mem-msg" style="margin-top: 8px;"></div>
                 </div>
+
+                <!-- 对话向量补算 -->
+                <div class="card" style="margin-top: 16px; padding: 16px;">
+                    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                        <span style="color: var(--text-light); font-size: 14px;">对话向量补算：</span>
+                        <input type="date" id="embed-conv-start" class="date-input" title="开始日期">
+                        <input type="date" id="embed-conv-end" class="date-input" title="结束日期">
+                        <button class="btn btn-primary" id="embedConvBtn" onclick="startEmbedConversations()">开始补算</button>
+                    </div>
+                    <div id="embed-conv-progress" style="display: none; margin-top: 12px;">
+                        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                            <div style="flex: 1; height: 8px; background: var(--border); border-radius: 4px; overflow: hidden;">
+                                <div id="embed-conv-bar" style="width: 0%; height: 100%; background: var(--primary); border-radius: 4px; transition: width 0.3s ease;"></div>
+                            </div>
+                            <span id="embed-conv-text" style="font-size: 13px; color: var(--text-muted); white-space: nowrap;">0/0</span>
+                        </div>
+                    </div>
+                    <div id="embed-conv-msg" style="margin-top: 8px;"></div>
+                </div>
             </section>
 
             <!-- 合并弹窗 -->
