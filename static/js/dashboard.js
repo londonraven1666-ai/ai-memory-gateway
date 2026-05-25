@@ -1359,6 +1359,7 @@ function renderConvList(conversations, isSearch = false) {
     
     for (const conv of conversations) {
         const sid = conv.session_id || conv.id;
+        const encodedSid = encodeURIComponent(sid);
         const title = escapeHtml(sid);
         const preview = escapeHtml(conv.title || conv.preview || '');
         const msgCount = conv.message_count || '';
@@ -1374,7 +1375,7 @@ function renderConvList(conversations, isSearch = false) {
             <input type="checkbox" class="conv-checkbox" value="${escapeHtml(sid)}" 
                    onchange="updateConvSelectionCount()" 
                    style="margin-right: 10px; margin-top: 4px; cursor: pointer; flex-shrink: 0;">
-            <div style="flex: 1; min-width: 0; cursor: pointer;" onclick="openConvDetail('${escapeHtml(sid)}')">
+            <div class="conv-open" data-session-id="${encodedSid}" style="flex: 1; min-width: 0; cursor: pointer;">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                     <div style="flex: 1; min-width: 0;">
                         <div style="font-weight: 500; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${title}</div>
@@ -1391,6 +1392,15 @@ function renderConvList(conversations, isSearch = false) {
     }
     
     container.innerHTML = html;
+    bindConversationListEvents(container);
+}
+
+function bindConversationListEvents(container) {
+    container.querySelectorAll('.conv-open').forEach(el => {
+        el.addEventListener('click', () => {
+            openConvDetail(decodeURIComponent(el.dataset.sessionId || ''));
+        });
+    });
 }
 
 // 渲染分页
@@ -1462,8 +1472,9 @@ async function loadConvMessages(sessionId, append = false) {
         // 渲染消息
         let html = '';
         if (!append) {
+            const encodedSessionId = encodeURIComponent(sessionId);
             html += `<div style="margin-bottom: 12px; display: flex; gap: 8px; justify-content: flex-end;">
-                <button class="btn btn-sm" onclick="deleteConversation('${escapeHtml(sessionId)}')">${ICONS.trash(13)} 删除对话</button>
+                <button class="btn btn-sm conv-delete-detail" data-session-id="${encodedSessionId}">${ICONS.trash(13)} 删除对话</button>
             </div>`;
         }
         
@@ -1497,8 +1508,9 @@ async function loadConvMessages(sessionId, append = false) {
         
         // 加载更多按钮
         if (convDetailLoadedCount < total) {
+            const encodedSessionId = encodeURIComponent(sessionId);
             html += `<div style="text-align: center; padding: 16px 0;">
-                <button class="btn btn-primary" onclick="loadConvMessages('${escapeHtml(sessionId)}', true)">
+                <button class="btn btn-primary conv-load-more" data-session-id="${encodedSessionId}">
                     加载更多（还有 ${total - convDetailLoadedCount} 条）
                 </button>
             </div>`;
@@ -1508,15 +1520,31 @@ async function loadConvMessages(sessionId, append = false) {
             // 追加模式：去掉旧的"加载更多"按钮，加上新内容
             const oldLoadMore = messagesEl.querySelector('[onclick*="loadConvMessages"]');
             if (oldLoadMore) oldLoadMore.parentElement.remove();
+            const oldLoadMoreClass = messagesEl.querySelector('.conv-load-more');
+            if (oldLoadMoreClass) oldLoadMoreClass.parentElement.remove();
             messagesEl.insertAdjacentHTML('beforeend', html);
         } else {
             messagesEl.innerHTML = html;
         }
+        bindConversationDetailEvents(messagesEl);
     } catch(e) {
         if (!append) {
             messagesEl.innerHTML = '<div style="color: var(--error);">加载失败: ' + e.message + '</div>';
         }
     }
+}
+
+function bindConversationDetailEvents(container) {
+    container.querySelectorAll('.conv-delete-detail').forEach(el => {
+        el.addEventListener('click', () => {
+            deleteConversation(decodeURIComponent(el.dataset.sessionId || ''));
+        });
+    });
+    container.querySelectorAll('.conv-load-more').forEach(el => {
+        el.addEventListener('click', () => {
+            loadConvMessages(decodeURIComponent(el.dataset.sessionId || ''), true);
+        });
+    });
 }
 
 function closeConvDetail() {
