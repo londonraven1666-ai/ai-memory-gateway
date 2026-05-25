@@ -2120,7 +2120,8 @@ let _mcpServers = [];
 
 // 所有需要读写的字段 key（开源版：EMBEDDING_API_KEY + EMBEDDING_BASE_URL）
 const _SETTINGS_FIELDS = {
-    str: ['API_BASE_URL', 'API_KEY', 'DEFAULT_MODEL', 'TOOL_MODEL', 'SUMMARY_MODEL', 'MEMORY_MODEL',
+    str: ['API_BASE_URL', 'API_KEY', 'DEFAULT_MODEL', 'TOOL_MODEL', 'TOOL_API_BASE_URL', 'TOOL_API_KEY',
+          'SUMMARY_MODEL', 'SUMMARY_API_BASE_URL', 'SUMMARY_API_KEY', 'MEMORY_MODEL',
           'CACHE_SUMMARY_MODEL', 'EMBEDDING_API_KEY', 'EMBEDDING_BASE_URL', 'EMBEDDING_MODEL', 'REASONING_EFFORT'],
     int: ['MAX_MEMORIES_INJECT', 'MEMORY_EXTRACT_INTERVAL', 'CACHE_PARTITION_X', 'EMBEDDING_DIM'],
     float: ['MIN_SCORE_THRESHOLD'],
@@ -2145,7 +2146,7 @@ async function loadSettings() {
             if (el) el.value = s[k] || '';
         });
         // 打码字段提示
-        ['API_KEY', 'EMBEDDING_API_KEY'].forEach(k => {
+        ['API_KEY', 'TOOL_API_KEY', 'SUMMARY_API_KEY', 'EMBEDDING_API_KEY'].forEach(k => {
             const hint = document.getElementById('set-' + k + '-hint');
             if (hint && s[k]) hint.textContent = '当前: ' + s[k];
         });

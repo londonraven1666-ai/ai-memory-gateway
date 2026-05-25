@@ -396,6 +396,8 @@ async def extract_pending_memories(session_id, user_message, assistant_reply, mo
         if not tool_model:
             print("ℹ️ pending memory extraction skipped: TOOL_MODEL not set")
             return 0
+        tool_api_base_url = await get_gateway_config("TOOL_API_BASE_URL", "") or TOOL_API_BASE_URL or API_BASE_URL
+        tool_api_key = await get_gateway_config("TOOL_API_KEY", "") or TOOL_API_KEY or API_KEY
 
         prompt = f"""请从这轮对话中提取值得长期记住的事实、偏好、事件或情绪状态。
 只提取稳定、具体、以后有用的信息。不要提取寒暄、临时措辞、系统行为或重复内容。
@@ -414,15 +416,15 @@ async def extract_pending_memories(session_id, user_message, assistant_reply, mo
 JSON："""
 
         headers = {
-            "Authorization": f"Bearer {API_KEY}",
+            "Authorization": f"Bearer {tool_api_key}",
             "Content-Type": "application/json",
         }
-        if "openrouter" in API_BASE_URL:
+        if "openrouter" in tool_api_base_url:
             headers["HTTP-Referer"] = EXTRA_REFERER
             headers["X-Title"] = EXTRA_TITLE
 
         async with httpx.AsyncClient(timeout=60) as client:
-            response = await client.post(API_BASE_URL, headers=headers, json={
+            response = await client.post(tool_api_base_url, headers=headers, json={
                 "model": tool_model,
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": 800,
@@ -592,16 +594,18 @@ async def generate_summary(messages: list, session_id: str = "") -> str:
 摘要："""
     
     try:
+        summary_api_base_url = TOOL_API_BASE_URL or API_BASE_URL
+        summary_api_key = TOOL_API_KEY or API_KEY
         headers = {
-            "Authorization": f"Bearer {API_KEY}",
+            "Authorization": f"Bearer {summary_api_key}",
             "Content-Type": "application/json",
         }
-        if "openrouter" in API_BASE_URL:
+        if "openrouter" in summary_api_base_url:
             headers["HTTP-Referer"] = EXTRA_REFERER
             headers["X-Title"] = EXTRA_TITLE
         
         async with httpx.AsyncClient(timeout=60) as client:
-            response = await client.post(API_BASE_URL, headers=headers, json={
+            response = await client.post(summary_api_base_url, headers=headers, json={
                 "model": TOOL_MODEL if TOOL_MODEL else CACHE_SUMMARY_MODEL,
                 "max_tokens": 500,
                 "messages": [{"role": "user", "content": prompt}],
@@ -1781,6 +1785,8 @@ async def consolidate_memories_for_date_range(start_date, end_date):
     
     # 使用默认模型，默认 haiku 节省成本
     consolidation_model = TOOL_MODEL if TOOL_MODEL else DEFAULT_MODEL
+    consolidation_api_base_url = TOOL_API_BASE_URL or API_BASE_URL
+    consolidation_api_key = TOOL_API_KEY or API_KEY
     
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
@@ -1788,9 +1794,9 @@ async def consolidate_memories_for_date_range(start_date, end_date):
             last_error = None
             for attempt in range(3):
                 response = await client.post(
-                    API_BASE_URL,
+                    consolidation_api_base_url,
                     headers={
-                        "Authorization": f"Bearer {API_KEY}",
+                        "Authorization": f"Bearer {consolidation_api_key}",
                         "Content-Type": "application/json"
                     },
                     json={
@@ -1840,9 +1846,9 @@ async def consolidate_memories_for_date_range(start_date, end_date):
                             # 方案3：让 AI 重新格式化
                             print(f"⚠️ JSON解析失败，尝试让AI修复: {e}")
                             fix_resp = await client.post(
-                                API_BASE_URL,
+                                consolidation_api_base_url,
                                 headers={
-                                    "Authorization": f"Bearer {API_KEY}",
+                                    "Authorization": f"Bearer {consolidation_api_key}",
                                     "Content-Type": "application/json"
                                 },
                                 json={
