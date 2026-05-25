@@ -737,6 +737,11 @@
                 <!-- MCP 管理 -->
                 <div class="card settings-card">
                     <h3 class="settings-group-title">MCP 管理</h3>
+                    <div class="mcp-add-row">
+                        <input type="text" id="mcp-new-name" class="input" placeholder="server 名称">
+                        <input type="text" id="mcp-new-url" class="input" placeholder="http://localhost:3000">
+                        <button class="btn btn-secondary" onclick="addMcpServer()">新增</button>
+                    </div>
                     <div class="mcp-table-wrap">
                         <table class="data-table mcp-table">
                             <thead>

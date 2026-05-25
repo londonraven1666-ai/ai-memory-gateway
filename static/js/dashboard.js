@@ -2383,7 +2383,7 @@ function getMcpServersFromSettings(settings) {
 function renderMcpServers(settings) {
     const tbody = document.getElementById('mcp-servers-tbody');
     if (!tbody) return;
-    _mcpServers = getMcpServersFromSettings(settings);
+    if (settings) _mcpServers = getMcpServersFromSettings(settings);
     if (!_mcpServers.length) {
         tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);">暂无 MCP server 配置</td></tr>';
         return;
@@ -2405,6 +2405,26 @@ function renderMcpServers(settings) {
             </td>
         </tr>
     `).join('');
+}
+
+function addMcpServer() {
+    const nameEl = document.getElementById('mcp-new-name');
+    const urlEl = document.getElementById('mcp-new-url');
+    const name = (nameEl?.value || '').trim();
+    const url = (urlEl?.value || '').trim();
+    if (!name || !url) {
+        showSettingsMsg('error', '请填写 MCP server 名称和 URL');
+        return;
+    }
+    if (_mcpServers.some(server => server.name === name)) {
+        showSettingsMsg('error', 'MCP server 名称已存在');
+        return;
+    }
+    _mcpServers.push({ name, url, enabled: true });
+    if (nameEl) nameEl.value = '';
+    if (urlEl) urlEl.value = '';
+    renderMcpServers();
+    showSettingsMsg('success', '已添加 MCP server，记得保存设置');
 }
 
 function updateMcpServerUrl(index, value) {

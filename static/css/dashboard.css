@@ -1442,6 +1442,13 @@ body {
     overflow-x: auto;
 }
 
+.mcp-add-row {
+    display: grid;
+    grid-template-columns: minmax(140px, 220px) minmax(240px, 1fr) auto;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
 .mcp-url-input {
     min-width: 260px;
     font-size: 13px;
@@ -1460,4 +1467,10 @@ body {
     color: var(--text-muted);
     font-size: 12px;
     overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+    .mcp-add-row {
+        grid-template-columns: 1fr;
+    }
 }
