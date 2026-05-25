@@ -23,13 +23,15 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")
 HAS_PGVECTOR = False  # 在init_tables时检测
 
 # Embedding 配置（向量搜索用）
-EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY", "")
-EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL", "https://api.openai.com/v1")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+# 默认桥接 VPS 本地 bge-m3；外部 OpenAI-compatible embedding 仍可在 Dashboard 覆盖。
+EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY", "local-bge-m3")
+EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL", "local:bge-m3")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "bge-m3")
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "256"))
+LOCAL_BGE_M3_URL = os.getenv("LOCAL_BGE_M3_URL", "http://127.0.0.1:11434")
 
 # 记忆向量搜索开关（需要同时设置 EMBEDDING_API_KEY）
-MEMORY_VECTOR_ENABLED = os.getenv("MEMORY_VECTOR_ENABLED", "false").lower() == "true"
+MEMORY_VECTOR_ENABLED = os.getenv("MEMORY_VECTOR_ENABLED", "true").lower() == "true"
 
 # 记忆搜索权重（纯关键词模式）
 WEIGHT_KEYWORD = float(os.getenv("WEIGHT_KEYWORD", "0.5"))
@@ -431,8 +433,102 @@ def extract_search_keywords(query: str) -> List[str]:
 # 向量搜索（OpenAI 兼容 Embedding API）
 # ============================================================
 
+def _fit_embedding_dim(embedding: list) -> list:
+    """将本地模型输出适配到当前数据库 embedding 维度。"""
+    if not embedding or EMBEDDING_DIM <= 0:
+        return embedding or []
+    if len(embedding) == EMBEDDING_DIM:
+        return embedding
+    if len(embedding) > EMBEDDING_DIM:
+        return embedding[:EMBEDDING_DIM]
+    return embedding + [0.0] * (EMBEDDING_DIM - len(embedding))
+
+
+def _extract_embedding(payload) -> list:
+    """兼容 OpenAI / Ollama / TEI / 简单数组返回。"""
+    if isinstance(payload, list):
+        if payload and isinstance(payload[0], (int, float)):
+            return [float(x) for x in payload]
+        if payload and isinstance(payload[0], list):
+            return [float(x) for x in payload[0]]
+    if not isinstance(payload, dict):
+        return []
+    if isinstance(payload.get("embedding"), list):
+        return [float(x) for x in payload["embedding"]]
+    if isinstance(payload.get("embeddings"), list):
+        embeddings = payload["embeddings"]
+        if embeddings and isinstance(embeddings[0], list):
+            return [float(x) for x in embeddings[0]]
+    data = payload.get("data")
+    if isinstance(data, list) and data:
+        first = data[0]
+        if isinstance(first, dict) and isinstance(first.get("embedding"), list):
+            return [float(x) for x in first["embedding"]]
+    return []
+
+
+async def _compute_local_bge_embedding(text: str) -> list:
+    """桥接 VPS 本地 bge-m3，自动适配常见本地 embedding 服务。"""
+    import httpx
+
+    model = EMBEDDING_MODEL or "bge-m3"
+    bases = []
+    for raw_base in [
+        LOCAL_BGE_M3_URL,
+        "http://127.0.0.1:11434",  # Ollama
+        "http://127.0.0.1:9997",   # Xinference
+        "http://127.0.0.1:8080",   # Text Embeddings Inference
+        "http://127.0.0.1:8001",
+    ]:
+        base = str(raw_base).rstrip("/")
+        if base and base not in bases:
+            bases.append(base)
+
+    candidates = []
+    for base in bases:
+        candidates.extend([
+            # Ollama native
+            (f"{base}/api/embeddings", {"model": model, "prompt": text}),
+            (f"{base}/api/embed", {"model": model, "input": text}),
+            # OpenAI-compatible sidecars: Ollama / Xinference / vLLM-compatible
+            (f"{base}/v1/embeddings", {"model": model, "input": text}),
+            # Text Embeddings Inference style
+            (f"{base}/embed", {"inputs": text}),
+        ])
+    candidates.append(
+        # Some sidecars expose OpenAI-compatible /embeddings directly.
+        (f"{bases[0]}/embeddings", {"model": model, "input": text})
+    )
+    timeout = httpx.Timeout(30.0, connect=1.5)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        last_error = None
+        for url, body in candidates:
+            try:
+                resp = await client.post(url, json=body)
+                if resp.status_code >= 400:
+                    last_error = f"{url} HTTP {resp.status_code}: {resp.text[:160]}"
+                    continue
+                embedding = _extract_embedding(resp.json())
+                if embedding:
+                    return _fit_embedding_dim(embedding)
+                last_error = f"{url} returned no embedding"
+            except Exception as e:
+                last_error = f"{url}: {e}"
+        print(f"⚠️ 本地 bge-m3 桥接失败: {last_error}")
+    return []
+
+
+def _is_local_bge_bridge() -> bool:
+    return str(EMBEDDING_BASE_URL).strip().lower() in {"local:bge-m3", "local://bge-m3", "local"}
+
+
 async def compute_embedding(text: str) -> list:
-    """调用 OpenAI 兼容的 Embedding API 计算文本向量"""
+    """计算文本向量：优先支持本地 bge-m3 桥接，也兼容 OpenAI Embedding API。"""
+    if _is_local_bge_bridge():
+        if len(text) > 4000:
+            text = text[:4000]
+        return await _compute_local_bge_embedding(text)
+
     if not EMBEDDING_API_KEY:
         return []
     
@@ -461,7 +557,7 @@ async def compute_embedding(text: str) -> list:
             )
             resp.raise_for_status()
             data = resp.json()
-            return data["data"][0]["embedding"]
+            return _fit_embedding_dim(data["data"][0]["embedding"])
     except Exception as e:
         print(f"⚠️ Embedding计算失败: {e}")
         return []

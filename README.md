@@ -248,17 +248,18 @@ ai-memory-gateway/
 
 提取记忆时，网关会把客户端发来的完整对话上下文（不含 system prompt）传给提取模型，这样能捕捉到跨轮次的信息。通过 `MEMORY_EXTRACT_INTERVAL` 可以控制提取频率：设为 0 禁用自动提取，设为 1 每轮都提，设为 N 则每 N 轮提取一次（适合控制成本）。
 
-> **关于向量搜索：** 当前版本支持可选的记忆向量搜索功能。默认使用 jieba 中文分词 + 关键词匹配（ILIKE），适合大多数场景。如果需要语义搜索（说"过年"能搜到"春节"），可以设置 `MEMORY_VECTOR_ENABLED=true` + `EMBEDDING_API_KEY`，系统会同时走关键词和向量两路搜索，四维加权排序。支持任何 OpenAI 兼容的 Embedding API（OpenAI、Jina、Voyage、本地 Ollama 等）。如果数据库支持 pgvector 扩展会自动启用，否则回退到 Python 端计算余弦相似度。
+> **关于向量搜索：** 当前版本支持记忆向量搜索功能。默认桥接 VPS 本地 `bge-m3`（Dashboard 中可点「桥接本地 bge-m3」一键写入配置），也支持任何 OpenAI 兼容的 Embedding API（OpenAI、Jina、Voyage、本地 Ollama 等）。系统会同时走关键词和向量两路搜索，四维加权排序。如果数据库支持 pgvector 扩展会自动启用，否则回退到 Python 端计算余弦相似度。
 
 **向量搜索环境变量（可选）：**
 
 | 环境变量 | 说明 | 默认值 |
 |---------|------|--------|
-| `MEMORY_VECTOR_ENABLED` | 记忆向量搜索开关 | `false` |
-| `EMBEDDING_API_KEY` | Embedding API Key（必需） | 无 |
-| `EMBEDDING_BASE_URL` | Embedding API 地址 | `https://api.openai.com/v1` |
-| `EMBEDDING_MODEL` | Embedding 模型 | `text-embedding-3-small` |
+| `MEMORY_VECTOR_ENABLED` | 记忆向量搜索开关 | `true` |
+| `EMBEDDING_API_KEY` | Embedding API Key（本地桥接可用占位值） | `local-bge-m3` |
+| `EMBEDDING_BASE_URL` | Embedding API 地址；`local:bge-m3` 会走本地桥接 | `local:bge-m3` |
+| `EMBEDDING_MODEL` | Embedding 模型 | `bge-m3` |
 | `EMBEDDING_DIM` | 向量维度 | `256` |
+| `LOCAL_BGE_M3_URL` | 本地 bge-m3 服务地址；默认优先探测 Ollama，也会尝试常见本地端口 | `http://127.0.0.1:11434` |
 | `MEMORY_HW_KEYWORD` | 混合搜索：关键词权重 | `0.35` |
 | `MEMORY_HW_SEMANTIC` | 混合搜索：语义相似度权重 | `0.35` |
 | `MEMORY_HW_IMPORTANCE` | 混合搜索：重要程度权重 | `0.15` |

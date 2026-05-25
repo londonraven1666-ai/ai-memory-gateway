@@ -2250,6 +2250,20 @@ async function saveSettings() {
     }
 }
 
+async function useLocalBgeM3() {
+    const setVal = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.value = value;
+    };
+    const vectorToggle = document.getElementById('set-MEMORY_VECTOR_ENABLED');
+    if (vectorToggle) vectorToggle.checked = true;
+    setVal('set-EMBEDDING_API_KEY', 'local-bge-m3');
+    setVal('set-EMBEDDING_BASE_URL', 'local:bge-m3');
+    setVal('set-EMBEDDING_MODEL', 'bge-m3');
+    setVal('set-EMBEDDING_DIM', '256');
+    await saveSettings();
+}
+
 async function loadModelList() {
     const hint = document.getElementById('model-count-hint');
     if (hint) hint.textContent = '加载模型列表...';

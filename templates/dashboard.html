@@ -659,6 +659,10 @@
                 <!-- 向量搜索 -->
                 <div class="card settings-card">
                     <h3 class="settings-group-title">向量搜索</h3>
+                    <div class="settings-field">
+                        <button class="btn btn-sm" type="button" onclick="useLocalBgeM3()">桥接本地 bge-m3</button>
+                        <small class="form-hint">自动启用向量搜索，并使用 gateway 内置本地 bge-m3 桥接。</small>
+                    </div>
                     <div class="settings-field settings-toggle-row">
                         <label>启用向量搜索</label>
                         <label class="toggle"><input type="checkbox" id="set-MEMORY_VECTOR_ENABLED"><span class="toggle-slider"></span></label>
@@ -670,11 +674,11 @@
                     </div>
                     <div class="settings-field">
                         <label>Embedding Base URL</label>
-                        <input type="text" id="set-EMBEDDING_BASE_URL" class="input" placeholder="https://api.openai.com/v1">
+                        <input type="text" id="set-EMBEDDING_BASE_URL" class="input" placeholder="local:bge-m3">
                     </div>
                     <div class="settings-field">
                         <label>Embedding 模型</label>
-                        <input type="text" id="set-EMBEDDING_MODEL" class="input" placeholder="text-embedding-3-small">
+                        <input type="text" id="set-EMBEDDING_MODEL" class="input" placeholder="bge-m3">
                     </div>
                     <div class="settings-field">
                         <label>Embedding 维度</label>
