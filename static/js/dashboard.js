@@ -2169,12 +2169,19 @@ async function loadSettings() {
         const s = data.settings;
 
         // 字符串字段
+        const _MASKED_KEYS = ['API_KEY', 'TOOL_API_KEY', 'SUMMARY_API_KEY', 'EMBEDDING_API_KEY'];
         _SETTINGS_FIELDS.str.forEach(k => {
             const el = document.getElementById('set-' + k);
-            if (el) el.value = s[k] || '';
+            if (!el) return;
+            if (_MASKED_KEYS.includes(k)) {
+                el.value = '';
+                el.placeholder = s[k] || '';
+            } else {
+                el.value = s[k] || '';
+            }
         });
         // 打码字段提示
-        ['API_KEY', 'TOOL_API_KEY', 'SUMMARY_API_KEY', 'EMBEDDING_API_KEY'].forEach(k => {
+        _MASKED_KEYS.forEach(k => {
             const hint = document.getElementById('set-' + k + '-hint');
             if (hint && s[k]) hint.textContent = '当前: ' + s[k];
         });

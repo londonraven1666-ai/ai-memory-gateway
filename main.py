@@ -139,6 +139,8 @@ SUMMARY_MODEL = os.getenv("SUMMARY_MODEL", "")
 SUMMARY_API_BASE_URL = os.getenv("SUMMARY_API_BASE_URL", "")
 SUMMARY_API_KEY = os.getenv("SUMMARY_API_KEY", "")
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
+GATEWAY_API_KEY = os.getenv("GATEWAY_API_KEY", "")
+FORCE_DEFAULT_MODEL = os.getenv("FORCE_DEFAULT_MODEL", "false").lower() == "true"
 MCP_SERVERS = os.getenv("MCP_SERVERS", "")
 
 # 网关端口
@@ -1052,8 +1054,12 @@ async def health_check():
 
 
 @app.get("/v1/models")
-async def list_models():
+async def list_models(request: Request):
     """模型列表（让客户端不报错）"""
+    if GATEWAY_API_KEY:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header != f"Bearer {GATEWAY_API_KEY}":
+            return JSONResponse(status_code=401, content={"error": "Invalid gateway API key"})
     return {
         "object": "list",
         "data": [
@@ -1070,6 +1076,11 @@ async def list_models():
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request):
     """核心转发接口"""
+    # Gateway-level auth: verify incoming Bearer token
+    if GATEWAY_API_KEY:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header != f"Bearer {GATEWAY_API_KEY}":
+            return JSONResponse(status_code=401, content={"error": "Invalid gateway API key"})
     if not API_KEY:
         return JSONResponse(
             status_code=500,
@@ -1234,6 +1245,8 @@ async def chat_completions(request: Request):
     # ---------- 模型处理 ----------
     model = body.get("model", DEFAULT_MODEL)
     if not model:
+        model = DEFAULT_MODEL
+    if FORCE_DEFAULT_MODEL and DEFAULT_MODEL:
         model = DEFAULT_MODEL
     body["model"] = model
     
