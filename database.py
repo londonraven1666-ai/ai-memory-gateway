@@ -882,10 +882,13 @@ async def search_memories(query: str, limit: int = 10):
                 print(f"   📌 [score={r['score']:.3f}] (hits={r['hit_count']}, imp={r['importance']}) {r['content'][:60]}...")
             
             ids = [r["id"] for r in results]
-            await conn.execute(
-                "UPDATE memories SET last_accessed = NOW() WHERE id = ANY($1::int[])",
-                ids,
-            )
+            try:
+                await conn.execute(
+                    "UPDATE core_memories SET activation_count = activation_count + 1, updated_at = NOW() WHERE id = ANY($1::text[])",
+                    ids,
+                )
+            except Exception as e:
+                print(f"⚠️ activation_count更新失败（不影响搜索结果）: {e}")
         else:
             print(f"🔍 搜索 '{query}' → 关键词 {keywords[:8]} → 无结果" + (f"（{filtered} 条被分数阈值过滤）" if filtered else ""))
         
@@ -936,7 +939,7 @@ async def search_memories_hybrid(query: str, limit: int = 10):
             hit_count_expr = " + ".join(case_parts)
             max_hits = len(keywords)
             where_parts = [f"content ILIKE '%' || ${i+1} || '%'" for i in range(len(keywords))]
-            where_clause = f"is_active = TRUE AND ({' OR '.join(where_parts)})"
+            where_clause = f"({' OR '.join(where_parts)})"
             
             limit_idx = len(keywords) + 1
             params.append(limit * 3)
@@ -945,7 +948,7 @@ async def search_memories_hybrid(query: str, limit: int = 10):
                 SELECT id, content, importance, created_at,
                        ({hit_count_expr}) AS hit_count,
                        ({hit_count_expr})::float / {max_hits}.0 AS kw_score
-                FROM memories
+                FROM core_memories
                 WHERE {where_clause}
                 ORDER BY kw_score DESC
                 LIMIT ${limit_idx}
@@ -964,34 +967,16 @@ async def search_memories_hybrid(query: str, limit: int = 10):
         
         # ---- 向量路 ----
         if query_embedding:
-            if HAS_PGVECTOR:
-                vec_str = '[' + ','.join(str(f) for f in query_embedding) + ']'
-                sem_rows = await conn.fetch("""
-                    SELECT id, content, importance, created_at,
-                           1 - (embedding <=> $1::vector) as similarity
-                    FROM memories
-                    WHERE embedding IS NOT NULL AND is_active = TRUE
-                    ORDER BY embedding <=> $1::vector
-                    LIMIT $2
-                """, vec_str, limit * 3)
-            else:
-                # Python端计算cosine
-                import json
-                all_mem = await conn.fetch("""
-                    SELECT id, content, importance, created_at, embedding_json
-                    FROM memories WHERE embedding_json IS NOT NULL AND is_active = TRUE
-                """)
-                
-                scored = []
-                for row in all_mem:
-                    try:
-                        emb = json.loads(row['embedding_json'])
-                        sim = _cosine_sim(query_embedding, emb)
-                        scored.append({**dict(row), 'similarity': sim})
-                    except Exception:
-                        continue
-                scored.sort(key=lambda x: -x['similarity'])
-                sem_rows = scored[:limit * 3]
+            # pgvector的::vector cast不依赖HAS_PGVECTOR的register_vector，直接走
+            vec_str = '[' + ','.join(str(f) for f in query_embedding) + ']'
+            sem_rows = await conn.fetch("""
+                SELECT id, content, importance, created_at,
+                       1 - (embedding <=> $1::vector) as similarity
+                FROM core_memories
+                WHERE embedding IS NOT NULL
+                ORDER BY embedding <=> $1::vector
+                LIMIT $2
+            """, vec_str, limit * 3)
             
             for r in sem_rows:
                 sim = float(r['similarity'])
@@ -1032,7 +1017,11 @@ async def search_memories_hybrid(query: str, limit: int = 10):
         for mid, info in candidates.items():
             kw = kw_norm.get(mid, 0.0)
             sem = sem_norm.get(mid, 0.0)
-            imp = info['importance'] / 10.0
+            imp_raw = info['importance']
+            if isinstance(imp_raw, str):
+                imp = {'low': 0.25, 'medium': 0.5, 'high': 0.75, 'critical': 1.0}.get(imp_raw.lower(), 0.5)
+            else:
+                imp = float(imp_raw) / 10.0 if imp_raw is not None else 0.5
             days = (now - info['created_at']).total_seconds() / 86400.0
             rec = 1.0 / (1.0 + days)
             
@@ -1045,13 +1034,14 @@ async def search_memories_hybrid(query: str, limit: int = 10):
                 'id': mid,
                 'content': info['content'],
                 'importance': info['importance'],
+                'importance_score': imp,
                 'created_at': info['created_at'],
                 'hit_count': info['hit_count'],
                 'similarity': info['similarity'],
                 'score': score,
             })
         
-        final.sort(key=lambda x: (-x['score'], -x['importance']))
+        final.sort(key=lambda x: (-x['score'], -x['importance_score']))
         
         # 过滤低分
         if MIN_SCORE_THRESHOLD > 0:
@@ -1071,10 +1061,13 @@ async def search_memories_hybrid(query: str, limit: int = 10):
                 print(f"   📌 [score={r['score']:.3f}] (kw={r['hit_count']}, sim={r['similarity']:.2f}, imp={r['importance']}) {r['content'][:60]}...")
             
             ids = [r["id"] for r in results]
-            await conn.execute(
-                "UPDATE memories SET last_accessed = NOW() WHERE id = ANY($1::int[])",
-                ids,
-            )
+            try:
+                await conn.execute(
+                    "UPDATE core_memories SET activation_count = activation_count + 1, updated_at = NOW() WHERE id = ANY($1::text[])",
+                    ids,
+                )
+            except Exception as e:
+                print(f"⚠️ activation_count更新失败（不影响搜索结果）: {e}")
         else:
             print(f"🔍 混合搜索 '{query}' → 无结果" + (f"（{filtered} 条被过滤）" if filtered else ""))
 

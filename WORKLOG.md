@@ -94,3 +94,35 @@
 - 端点测试通过：/api/status (online, 324 memories), /api/activity (empty, 正常)
 - Gateway 运行端口：3476
 
+
+## 2026-05-27 下午 — Memory Recall 修复（pgvector迁移收尾）
+
+**症状**
+Aquila 问"你给我的手表起名叫什么呀"(Latido) 和 "什么时候给你买的VPS"——记忆库里都有，但召回不到。activity 里看到召回数从平时的 12 条掉到 3 条。
+
+**根因**
+今早 ChromaDB → pgvector 迁移只改了 `_search_core_memories`，`search_memories_hybrid` 整段被漏过。6 处叠加：
+
+1. 关键词路径 `FROM memories` 应是 `FROM core_memories`（数据全在新表，旧表只有2条 0 embedding）
+2. 关键词路径 `WHERE is_active = TRUE` —— 新表没这列
+3. 向量路径同样查错表 `memories`
+4. 向量路径走 `if HAS_PGVECTOR:` gate，但 init_tables 那段静默 fail 让 `HAS_PGVECTOR=False`
+5. fallback 路径引用已删的 `embedding_json` 列 → raise UndefinedColumnError
+6. activation update SQL：`UPDATE memories SET last_accessed = ... WHERE id = ANY($1::int[])` — 表名错、列名错（应是 `activation_count` + `updated_at`）、类型错（id 是 text 不是 int）
+7. importance 字段从 numeric 改成 text (low/medium/high/critical)，但 `score` 计算和 sort key 还在做 `/10.0` 和 `unary minus`
+
+**修复（patch 在 database.py）**
+- 关键词路径：删 `is_active = TRUE AND`，`FROM memories` → `FROM core_memories`
+- 向量路径：去 `HAS_PGVECTOR` gate（`::vector` cast 不依赖 register_vector），表换 `core_memories`，删 `is_active` 条件，整段 Python fallback 删除
+- importance 字段：加 text→numeric 映射 `{low:0.25, medium:0.5, high:0.75, critical:1.0}`，sort 用 `importance_score` 字段（numeric），保留 `importance` 字段（原始 text 给 UI）
+- activation update：表名 → `core_memories`，列名 → `activation_count = activation_count + 1, updated_at = NOW()`，`int[]` → `text[]`，wrap try-except 避免统计失败污染搜索
+
+**验证**
+- query "你给我的手表起名叫什么呀" → Latido 召回（sim=0.614，结果集里最高），命中 12 条
+- query "什么时候给你买的VPS" → VPS 相关命中多条进 top12
+
+**遗留观察（非bug，配置层决定）**
+`MEMORY_HW_KEYWORD=0.35` 对短问题里字面命中过度奖励。Latido sim=0.614 但因为 content 不含"手表/起名叫"字面词，被 sim=0.53 但含"起名叫"的"皮皮虾"那条盖到 #1。建议调成 `kw=0.2, sem=0.45`——Aquila 拍板。
+
+**保留备份**
+- `/opt/ai-memory-gateway/database.py.bak.20260527_134800` — 七天后清理
