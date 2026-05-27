@@ -1182,7 +1182,7 @@ async function loadConvStats() {
 
 async function exportConversations() {
     try {
-        const resp = await fetch("/api/conversations/export");
+        const resp = await fetch(_pfx + "/api/conversations/export");
         const data = await resp.json();
         if (data.error) { alert("导出失败: " + data.error); return; }
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
@@ -1451,7 +1451,7 @@ async function loadConvMessages(sessionId, append = false) {
     const offset = append ? convDetailLoadedCount : 0;
     
     try {
-        const resp = await fetch(`/api/conversations/${encodeURIComponent(sessionId)}/messages?limit=50&offset=${offset}`);
+        const resp = await fetch(_pfx + `/api/conversations/${encodeURIComponent(sessionId)}/messages?limit=50&offset=${offset}`);
         const data = await resp.json();
         
         if (data.error) {
@@ -1571,7 +1571,7 @@ async function saveMessageEdit(msgId) {
     if (!newContent) { alert('内容不能为空'); return; }
     
     try {
-        const resp = await fetch(`/api/chat/messages/${msgId}`, {
+        const resp = await fetch(_pfx + `/api/chat/messages/${msgId}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content: newContent })
@@ -1597,7 +1597,7 @@ async function deleteConversation(sessionId) {
     if (!confirm('确定删除这个对话吗？（可在回收站恢复）')) return;
     
     try {
-        const resp = await fetch(`/api/conversations/${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
+        const resp = await fetch(_pfx + `/api/conversations/${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
         const data = await resp.json();
         if (data.error) {
             alert('删除失败: ' + data.error);
