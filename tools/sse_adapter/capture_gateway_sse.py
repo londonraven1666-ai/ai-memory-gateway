@@ -20,8 +20,7 @@ import json
 import os
 from pathlib import Path
 from typing import Any, Dict
-
-import httpx
+from urllib import request, error
 
 
 DEFAULT_URL = "https://altairaquila-hafen.duckdns.org/gateway/v1/chat/completions"
@@ -78,11 +77,25 @@ def capture(url: str, api_key: str, model: str, scenario: str, out_dir: Path) ->
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
+    req = request.Request(
+        url,
+        data=json.dumps(body).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
 
-    with httpx.stream("POST", url, headers=headers, json=body, timeout=120) as response:
-        response.raise_for_status()
+    try:
+        response = request.urlopen(req, timeout=120)
+    except error.HTTPError as exc:
+        body_text = exc.read().decode("utf-8", errors="replace")
+        raise SystemExit(f"HTTP {exc.code} while capturing {scenario}: {body_text[:500]}")
+
+    with response:
         with output.open("wb") as f:
-            for chunk in response.iter_bytes():
+            while True:
+                chunk = response.read(8192)
+                if not chunk:
+                    break
                 f.write(chunk)
 
     meta = {
@@ -90,7 +103,7 @@ def capture(url: str, api_key: str, model: str, scenario: str, out_dir: Path) ->
         "url": url,
         "model": model,
         "request": {k: v for k, v in body.items() if k != "messages"},
-        "output": str(output),
+        "output": output.name,
     }
     (out_dir / f"{scenario}.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n")
     print(f"captured {scenario}: {output}")

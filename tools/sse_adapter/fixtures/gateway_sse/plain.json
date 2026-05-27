@@ -1,0 +1,11 @@
+{
+  "scenario": "plain",
+  "url": "https://altairaquila-hafen.duckdns.org/gateway/v1/chat/completions",
+  "model": "gateway",
+  "request": {
+    "model": "gateway",
+    "stream": true,
+    "max_tokens": 160
+  },
+  "output": "plain.sse"
+}

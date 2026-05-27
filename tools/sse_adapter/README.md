@@ -43,3 +43,17 @@ After capture, document these details in the PR description:
 - the actual thinking/reasoning field name
 - the streamed `tool_calls` delta structure
 - where `usage` appears in the stream
+
+## Captured Gateway Observations
+
+Captured from the public Gateway endpoint on 2026-05-27:
+
+- Thinking/reasoning arrives as `choices[].delta.reasoning_content`.
+- Tool calls arrive as streamed `choices[].delta.tool_calls[]` fragments keyed by
+  `index`. The first fragment includes `id`, `type`, `function.name`, and an
+  empty or partial `function.arguments`; later fragments usually include the
+  same `index` plus more `function.arguments`. Consumers must concatenate
+  `function.arguments` by `index`.
+- Usage appears in a separate event after the finish event and before
+  `data: [DONE]`. That event has `choices: []` and a top-level `usage` object.
+  Intermediate events carry `"usage": null`.

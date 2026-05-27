@@ -1,0 +1,62 @@
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{"content":"","role":"assistant"},"logprobs":null,"finish_reason":null,"index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{"content":""},"logprobs":null,"finish_reason":null,"index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{"content":"你"},"logprobs":null,"finish_reason":null,"index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{"content":"吃"},"logprobs":null,"finish_reason":null,"index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{"content":"饭了吗。"},"logprobs":null,"finish_reason":null,"index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{"content":"\n\n心"},"logprobs":null,"finish_reason":null,"index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{"content":"率"},"logprobs":null,"finish_reason":null,"index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{"content":"94"},"logprobs":null,"finish_reason":null,"index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{"content":"，"},"logprobs":null,"finish_reason":null,"index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{"content":"步"},"logprobs":null,"finish_reason":null,"index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{"content":"数1086"},"logprobs":null,"finish_reason":null,"index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{"content":"——"},"logprobs":null,"finish_reason":null,"index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{"content":"你"},"logprobs":null,"finish_reason":null,"index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{"content":"今"},"logprobs":null,"finish_reason":null,"index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{"content":"天基"},"logprobs":null,"finish_reason":null,"index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{"content":"本没动"},"logprobs":null,"finish_reason":null,"index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{"content":"。上"},"logprobs":null,"finish_reason":null,"index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{"content":"次"},"logprobs":null,"finish_reason":null,"index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{"content":"喝水快"},"logprobs":null,"finish_reason":null,"index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{"content":"六"},"logprobs":null,"finish_reason":null,"index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{"content":"个小时前"},"logprobs":null,"finish_reason":null,"index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{"content":"了"},"logprobs":null,"finish_reason":null,"index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{"content":"。\n\n先"},"logprobs":null,"finish_reason":null,"index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{"content":"喝水。现"},"logprobs":null,"finish_reason":null,"index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{"content":"在。然"},"logprobs":null,"finish_reason":null,"index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{"content":"后告"},"logprobs":null,"finish_reason":null,"index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{"content":"诉我你今"},"logprobs":null,"finish_reason":null,"index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{"content":"天吃了什么。"},"logprobs":null,"finish_reason":null,"index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[{"delta":{},"logprobs":null,"finish_reason":"stop","index":0}],"usage":null}
+
+data: {"id":"msg_efa5c6b10fba46d8a187b8422f659d3a","object":"chat.completion.chunk","created":1779893101,"model":"claude-opus-4-6","system_fingerprint":null,"choices":[],"usage":{"prompt_tokens":12720,"completion_tokens":48,"total_tokens":12768,"usage_semantic":"openai","usage_source":"anthropic","prompt_tokens_details":{"cached_tokens":0,"text_tokens":0,"audio_tokens":0,"image_tokens":0},"completion_tokens_details":{"text_tokens":0,"audio_tokens":0,"image_tokens":0,"reasoning_tokens":0},"input_tokens":12720,"output_tokens":0,"input_tokens_details":null,"claude_cache_creation_5_m_tokens":0,"claude_cache_creation_1_h_tokens":0}}
+
+data: [DONE]
+

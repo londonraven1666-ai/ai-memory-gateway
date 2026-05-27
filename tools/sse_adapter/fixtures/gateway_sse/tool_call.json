@@ -1,0 +1,41 @@
+{
+  "scenario": "tool_call",
+  "url": "https://altairaquila-hafen.duckdns.org/gateway/v1/chat/completions",
+  "model": "gateway",
+  "request": {
+    "model": "gateway",
+    "stream": true,
+    "max_tokens": 160,
+    "tool_choice": {
+      "type": "function",
+      "function": {
+        "name": "capture_probe"
+      }
+    },
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "capture_probe",
+          "description": "Return a tiny JSON object for SSE tool call capture.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string"
+              },
+              "count": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "status",
+              "count"
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "output": "tool_call.sse"
+}
