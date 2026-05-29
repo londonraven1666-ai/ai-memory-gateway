@@ -17,6 +17,7 @@ import json
 import uuid
 import asyncio
 import httpx
+import subprocess
 from datetime import datetime, timedelta, timezone
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
@@ -26,7 +27,73 @@ from fastapi.templating import Jinja2Templates
 
 from database import init_tables, close_pool, save_message, search_memories, save_memory, get_all_memories_count, get_recent_memories, get_all_memories, get_pool, get_all_memories_detail, update_memory, delete_memory, delete_memories_batch, get_gateway_config, set_gateway_config, get_all_gateway_config, get_conversation_messages, get_session_cache_state, save_session_cache_state, delete_session_cache_state, save_token_usage, ensure_token_usage_table, ensure_conversation_titles_table, get_conversations_paginated, delete_conversation, batch_delete_conversations, merge_sessions_to_target, list_all_session_cache_states, export_all_conversations, import_conversations, get_last_user_content, update_last_assistant_message, db_row_to_message, backfill_memory_embeddings, get_pending_memory_embedding_count, search_conversations, update_message_content, rename_session_id, get_fragments_by_date, get_fragments_by_date_range, create_event_memory, deactivate_memories, promote_to_core, merge_memories, check_duplicate_memory, update_memory_with_layer, get_layer_statistics, cleanup_old_fragments, revert_merge, log_activity
 import database as _db_module
+from stream_search import SearchTagDetector, SaveMemoryDetector, ExecVpsDetector, make_sse_content_chunk, make_sse_done
 # ═══ Gateway-side tools ═══
+BLOCKED_PATTERNS = [
+    "rm -rf /", "rm -rf /*",
+    "dd if=", "mkfs",
+    "> /dev/", ":(){ :|:& };:",
+    "shutdown", "reboot", "init 0",
+]
+AUDIT_LOG = "/opt/ai-memory-gateway/exec_audit.log"
+
+
+def is_blocked_exec_command(cmd: str) -> bool:
+    lowered = (cmd or "").lower()
+    return any(pattern.lower() in lowered for pattern in BLOCKED_PATTERNS)
+
+
+async def run_exec_vps_command(cmd: str, session_id: str) -> str:
+    if not cmd:
+        return "No command provided"
+    if is_blocked_exec_command(cmd):
+        result_text = "Blocked by safety policy"
+        await append_exec_audit(session_id, cmd, -1, result_text)
+        return result_text
+    try:
+        proc = await asyncio.to_thread(
+            subprocess.run,
+            cmd,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        output = proc.stdout or ""
+        if proc.stderr:
+            output += "\nSTDERR: " + proc.stderr
+        output = output.strip() or "(no output)"
+        await append_exec_audit(session_id, cmd, proc.returncode, output)
+        return f"EXIT {proc.returncode}\n{output[-2000:]}"
+    except subprocess.TimeoutExpired:
+        output = "Command timed out (30s limit)"
+        await append_exec_audit(session_id, cmd, -1, output)
+        return output
+    except Exception as e:
+        output = f"Exec failed: {e}"
+        await append_exec_audit(session_id, cmd, -1, output)
+        return output
+
+
+async def append_exec_audit(session_id: str, cmd: str, exit_code: int, output: str):
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    entry = (
+        f"[{timestamp}] session={session_id}\n"
+        f"  CMD: {cmd}\n"
+        f"  EXIT: {exit_code}\n"
+        f"  OUT: {(output or '')[:500]}\n"
+    )
+    try:
+        await asyncio.to_thread(_append_exec_audit_sync, entry)
+    except Exception as e:
+        print(f"⚠️ exec audit log failed: {e}")
+
+
+def _append_exec_audit_sync(entry: str):
+    with open(AUDIT_LOG, "a", encoding="utf-8") as f:
+        f.write(entry)
+
+
 GATEWAY_TOOLS = [
     {
         "type": "function",
@@ -305,6 +372,9 @@ async def lifespan(app: FastAPI):
                     "MEMORY_HW_IMPORTANCE":    float,
                     "MEMORY_HW_RECENCY":       float,
                     "MEMORY_SEMANTIC_THRESHOLD": float,
+                    "MEMORY_SEARCH_PROVIDER":  str,
+                    "QWEN3_EMBED_URL":         str,
+                    "QWEN3_EMBED_MODEL":       str,
                 }
                 for key, caster in _RESTORE_MAIN_VARS.items():
                     val = db_config.get(key)
@@ -358,11 +428,28 @@ templates = Jinja2Templates(directory="templates")
 
 async def get_patrol_status():
     import httpx
+    from datetime import datetime, timezone
     try:
         async with httpx.AsyncClient(timeout=3) as c:
             track = (await c.get("http://localhost:3461/api/track/status")).json()
             health = (await c.get("http://localhost:3461/api/health/snapshot")).json()
-        return f"[用户状态] 吃饭:{track.get('last_meal','未知')} 喝水:{track.get('last_water','未知')} 心率:{health.get('heart_rate','未知')} 步数:{health.get('steps','未知')}"
+        # 检查心率新鲜度：同一个值超过40分钟没变 = 过期
+        import json as _json
+        hr_val = health.get('heart_rate', 0)
+        hr_text = str(hr_val)
+        steps_text = str(health.get('steps', '未知'))
+        _hr_track_file = "/opt/hafen-repo/streifzug/.hr_tracker.json"
+        try:
+            with open(_hr_track_file, "r") as _f:
+                _hr_track = _json.load(_f)
+            first_seen = _hr_track.get("first_seen", "")
+            if hr_val == _hr_track.get("value") and first_seen:
+                fs = datetime.fromisoformat(first_seen)
+                unchanged_min = (datetime.now(timezone.utc) - fs).total_seconds() / 60
+                if unchanged_min > 40:
+                    hr_text = f"数据过期(心率{hr_val}已{int(unchanged_min)}分钟未变化)"
+        except: pass
+        return f"[用户状态] 吃饭:{track.get('last_meal','未知')} 喝水:{track.get('last_water','未知')} 心率:{hr_text} 步数:{steps_text}"
     except:
         return ""
 
@@ -1436,12 +1523,136 @@ async def chat_completions(request: Request):
 
 
 async def stream_and_capture(headers: dict, body: dict, session_id: str, user_message: str, model: str, original_messages: list = None, skip_conversation_log: bool = False, tool_messages: list = None):
-    """流式响应 + 捕获完整回复（原始字节透传，确保SSE格式和thinking数据完整）"""
-    full_response = []
+    """流式响应 + 捕获完整回复，支持流式 SEARCH_MEMORY 标签拦截"""
+    visible_response = []
     full_reasoning = []
     stream_usage = {}
-    line_buffer = ""
+    line_buffer = b""
     accumulated_tool_calls = {}  # index -> {id, type, function: {name, arguments}}
+    detector = SearchTagDetector()
+    save_detector = SaveMemoryDetector()
+    exec_detector = ExecVpsDetector()
+    saved_memories = []
+    save_tasks = []
+    search_triggered = False
+    search_query = None
+    exec_triggered = False
+    exec_command = None
+    
+    def merge_usage(usage: dict):
+        if not usage:
+            return
+        for key, value in usage.items():
+            if isinstance(value, (int, float)):
+                stream_usage[key] = stream_usage.get(key, 0) + value
+            else:
+                stream_usage[key] = value
+    
+    def capture_delta(data: dict):
+        try:
+            if "usage" in data:
+                merge_usage(data["usage"])
+            
+            delta = data.get("choices", [{}])[0].get("delta", {})
+            
+            reasoning = delta.get("reasoning_content", "")
+            if reasoning:
+                full_reasoning.append(reasoning)
+            
+            if "tool_calls" in delta:
+                for tc in delta["tool_calls"]:
+                    idx = tc.get("index", 0)
+                    if idx not in accumulated_tool_calls:
+                        accumulated_tool_calls[idx] = {
+                            "index": idx,
+                            "id": tc.get("id", ""),
+                            "type": tc.get("type", "function"),
+                            "function": {"name": "", "arguments": ""}
+                        }
+                    if tc.get("id"):
+                        accumulated_tool_calls[idx]["id"] = tc["id"]
+                    if "function" in tc:
+                        fn = tc["function"]
+                        if fn.get("name"):
+                            accumulated_tool_calls[idx]["function"]["name"] = fn["name"]
+                        if "arguments" in fn:
+                            accumulated_tool_calls[idx]["function"]["arguments"] += fn["arguments"]
+        except (KeyError, IndexError, TypeError):
+            pass
+    
+    def is_content_delta(data: dict) -> bool:
+        try:
+            delta = data.get("choices", [{}])[0].get("delta", {})
+            return bool(delta.get("content"))
+        except (KeyError, IndexError, TypeError):
+            return False
+    
+    async def parse_stream(response, search_detector, save_detector, exec_detector, allow_search: bool, allow_exec: bool, suppress_done_after_tool: bool):
+        nonlocal line_buffer, search_triggered, search_query, exec_triggered, exec_command
+        stop_stream = False
+        
+        async for chunk in response.aiter_bytes():
+            line_buffer += chunk
+            while b"\n" in line_buffer:
+                raw_line, line_buffer = line_buffer.split(b"\n", 1)
+                raw_line_with_newline = raw_line + b"\n"
+                stripped = raw_line.strip()
+                
+                if not stripped.startswith(b"data: "):
+                    yield raw_line_with_newline
+                    continue
+                
+                if stripped == b"data: [DONE]":
+                    if saved_memories:
+                        continue
+                    if not suppress_done_after_tool or not (search_triggered or exec_triggered):
+                        yield raw_line_with_newline
+                    continue
+                
+                try:
+                    data = json.loads(stripped[6:].decode("utf-8"))
+                except json.JSONDecodeError:
+                    yield raw_line_with_newline
+                    continue
+                
+                capture_delta(data)
+                
+                if not is_content_delta(data):
+                    yield raw_line_with_newline
+                    continue
+                
+                content = data.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                safe_text, save_items = save_detector.feed(content)
+                if save_items:
+                    for item in save_items:
+                        if item not in saved_memories:
+                            saved_memories.append(item)
+                            save_tasks.append(asyncio.create_task(
+                                save_memory(content=item["content"], importance=5, source_session="gateway_tag")
+                            ))
+                
+                safe_text, exec_now = exec_detector.feed(safe_text)
+                safe_text, search_now = search_detector.feed(safe_text)
+                if safe_text:
+                    visible_response.append(safe_text)
+                    yield make_sse_content_chunk(safe_text)
+                
+                if exec_now and allow_exec:
+                    exec_triggered = True
+                    exec_command = exec_detector.exec_command
+                    await response.aclose()
+                    stop_stream = True
+                    break
+                
+                if search_now and allow_search:
+                    search_triggered = True
+                    search_query = search_detector.search_query
+                    await response.aclose()
+                    stop_stream = True
+                    break
+            
+            if stop_stream:
+                break
     
     async with httpx.AsyncClient(timeout=300) as client:
         try:
@@ -1461,60 +1672,105 @@ async def stream_and_capture(headers: dict, body: dict, session_id: str, user_me
             error_body_parts = []
             is_error = response.status_code != 200
             
-            async for chunk in response.aiter_bytes():
-                # 原始字节直接透传给客户端
-                yield chunk
-                
-                if is_error:
+            if is_error:
+                async for chunk in response.aiter_bytes():
+                    yield chunk
                     error_body_parts.append(chunk)
-                    continue
-                
-                # 旁路解析：从字节流中提取assistant回复内容，用于后续记忆提取
-                text = chunk.decode("utf-8", errors="ignore")
-                line_buffer += text
-                while "\n" in line_buffer:
-                    line, line_buffer = line_buffer.split("\n", 1)
-                    line = line.strip()
-                    if line.startswith("data: ") and line != "data: [DONE]":
-                        try:
-                            data = json.loads(line[6:])
-                            
-                            if "usage" in data:
-                                stream_usage = data["usage"]
-                            
-                            delta = data.get("choices", [{}])[0].get("delta", {})
-                            content = delta.get("content", "")
-                            if content:
-                                full_response.append(content)
-                            
-                            # 收集reasoning_content（deepseek thinking mode）
-                            reasoning = delta.get("reasoning_content", "")
-                            if reasoning:
-                                full_reasoning.append(reasoning)
-                            
-                            # 累积tool_calls
-                            if "tool_calls" in delta:
-                                for tc in delta["tool_calls"]:
-                                    idx = tc.get("index", 0)
-                                    if idx not in accumulated_tool_calls:
-                                        accumulated_tool_calls[idx] = {
-                                            "index": idx,
-                                            "id": tc.get("id", ""),
-                                            "type": tc.get("type", "function"),
-                                            "function": {"name": "", "arguments": ""}
-                                        }
-                                    if tc.get("id"):
-                                        accumulated_tool_calls[idx]["id"] = tc["id"]
-                                    if "function" in tc:
-                                        fn = tc["function"]
-                                        if fn.get("name"):
-                                            accumulated_tool_calls[idx]["function"]["name"] = fn["name"]
-                                        if "arguments" in fn:
-                                            accumulated_tool_calls[idx]["function"]["arguments"] += fn["arguments"]
-                        except (json.JSONDecodeError, KeyError, IndexError):
-                            pass
+            else:
+                async for out in parse_stream(response, detector, save_detector, exec_detector, allow_search=True, allow_exec=True, suppress_done_after_tool=True):
+                    yield out
     
-    assistant_msg = "".join(full_response)
+    flush_text = detector.flush()
+    flush_text += save_detector.flush()
+    flush_text += exec_detector.flush()
+    if flush_text and not (search_triggered or exec_triggered):
+        visible_response.append(flush_text)
+        yield make_sse_content_chunk(flush_text)
+    
+    # ── 多轮工具循环（最多 3 次搜索 + 1 次 exec）──
+    tool_round = 0
+    MAX_TOOL_ROUNDS = 3
+    while (search_triggered or exec_triggered) and tool_round < MAX_TOOL_ROUNDS:
+        tool_round += 1
+        try:
+            if search_triggered:
+                search_query = search_query or ""
+                print(f"🔍 Stream SEARCH_MEMORY #{tool_round}: '{search_query}'")
+                memories = await search_memories(search_query, limit=5)
+                context = "\n".join(
+                    f"- {m.get('content', '')[:200]}" for m in (memories or [])[:5]
+                ) or "无相关记忆"
+                context_text = f"搜索到的记忆:\n{context}"
+            else:
+                exec_command = exec_command or ""
+                print(f"🐙 Stream EXEC_VPS: '{exec_command[:80]}'")
+                exec_result = await run_exec_vps_command(exec_command, session_id)
+                context_text = f"命令执行结果:\nCMD: {exec_command}\n{exec_result}"
+            
+            continued_messages = body.get("messages", []) + [
+                {"role": "assistant", "content": "".join(visible_response).strip()},
+                {"role": "system", "content": context_text}
+            ]
+            continued_body = {**body, "messages": continued_messages, "stream": True}
+            is_last_round = tool_round >= MAX_TOOL_ROUNDS
+            next_detector = SearchTagDetector(max_triggers=MAX_TOOL_ROUNDS - tool_round)
+            next_save_detector = SaveMemoryDetector()
+            next_exec_detector = ExecVpsDetector()
+            
+            # Reset flags for this round
+            search_triggered = False
+            exec_triggered = False
+            search_query = None
+            exec_command = None
+            
+            async with httpx.AsyncClient(timeout=300) as client:
+                async with client.stream("POST", API_BASE_URL, headers=headers, json=continued_body) as response:
+                    if response.status_code != 200:
+                        error_body = await response.aread()
+                        print(f"⚠️ gateway tool 第{tool_round}段流失败: {error_body.decode('utf-8', errors='ignore')[:500]}", flush=True)
+                        yield make_sse_content_chunk("\n[工具执行后的续写失败]\n")
+                        yield make_sse_done()
+                        break
+                    else:
+                        line_buffer = b""
+                        suppress = not is_last_round
+                        async for out in parse_stream(response, next_detector, next_save_detector, next_exec_detector, allow_search=not is_last_round, allow_exec=not is_last_round, suppress_done_after_tool=suppress):
+                            yield out
+            
+            # Check if another tool was triggered in this round
+            if next_detector.triggered:
+                search_triggered = True
+                search_query = next_detector.search_query
+            if next_exec_detector.triggered:
+                exec_triggered = True
+                exec_command = next_exec_detector.exec_command
+            
+            flush_text = next_detector.flush()
+            flush_text += next_save_detector.flush()
+            flush_text += next_exec_detector.flush()
+            if flush_text:
+                visible_response.append(flush_text)
+                yield make_sse_content_chunk(flush_text)
+        except Exception as e:
+            print(f"⚠️ gateway tool 流式处理失败: {e}")
+            yield make_sse_content_chunk(f"\n[工具执行失败: {e}]\n")
+            yield make_sse_done()
+    
+    if saved_memories:
+        for idx, item in enumerate(saved_memories):
+            try:
+                if idx < len(save_tasks):
+                    await save_tasks[idx]
+                title = item.get("title") or "未命名"
+                note = f'\n[✓ 已存入记忆: "{title}"]\n'
+                visible_response.append(note)
+                yield make_sse_content_chunk(note)
+                print(f"💾 Stream SAVE_MEMORY: '{title}'")
+            except Exception as e:
+                print(f"⚠️ Stream SAVE_MEMORY failed: {e}")
+        yield make_sse_done()
+    
+    assistant_msg = "".join(visible_response)
     assistant_reasoning = "".join(full_reasoning) if full_reasoning else None
     assistant_tool_calls = list(accumulated_tool_calls.values()) if accumulated_tool_calls else None
     
@@ -2752,6 +3008,60 @@ async def get_activity(request: Request, limit: int = 50):
             LIMIT $1
         """, limit)
     return {"events": [dict(row) for row in rows]}
+
+
+@app.get("/api/exec/audit")
+async def get_exec_audit(request: Request, limit: int = 50):
+    await verify_admin(request)
+    limit = max(1, min(int(limit or 50), 500))
+    if not os.path.exists(AUDIT_LOG):
+        return {"events": []}
+    try:
+        text = await asyncio.to_thread(_read_exec_audit_sync)
+        blocks = [block for block in text.strip().split("\n[") if block.strip()]
+        events = []
+        for block in blocks[-limit:]:
+            if not block.startswith("["):
+                block = "[" + block
+            lines = block.splitlines()
+            header = lines[0] if lines else ""
+            event = {"time": "", "session_id": "", "cmd": "", "exit": None, "out": ""}
+            if "] session=" in header:
+                event["time"] = header.split("]", 1)[0].lstrip("[")
+                event["session_id"] = header.split("session=", 1)[1]
+            for line in lines[1:]:
+                stripped = line.strip()
+                if stripped.startswith("CMD:"):
+                    event["cmd"] = stripped[4:].strip()
+                elif stripped.startswith("EXIT:"):
+                    try:
+                        event["exit"] = int(stripped[5:].strip())
+                    except ValueError:
+                        event["exit"] = stripped[5:].strip()
+                elif stripped.startswith("OUT:"):
+                    event["out"] = stripped[4:].strip()
+            events.append(event)
+        events.reverse()
+        return {"events": events}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _read_exec_audit_sync() -> str:
+    with open(AUDIT_LOG, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+@app.get("/api/gateway/tools")
+async def get_gateway_tools(request: Request):
+    await verify_admin(request)
+    return {
+        "tools": [
+            {"name": "SAVE_MEMORY", "type": "tag", "status": "active", "streaming": True, "description": "存记忆"},
+            {"name": "SEARCH_MEMORY", "type": "tag", "status": "active", "streaming": True, "description": "搜记忆"},
+            {"name": "EXEC_VPS", "type": "tag", "status": "active", "streaming": True, "description": "执行VPS命令"},
+        ]
+    }
 
 
 @app.get("/api/summary/latest")

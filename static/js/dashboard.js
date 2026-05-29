@@ -91,6 +91,8 @@ document.addEventListener('DOMContentLoaded', () => {
     loadExportStats();
     // 加载状态监控
     loadStatusPanel();
+    // 加载工具面板
+    loadGatewayTools();
 });
 
 // ============================================
@@ -130,6 +132,9 @@ function switchSection(name) {
     }
     if (name === 'status') {
         loadStatusPanel();
+    }
+    if (name === 'tools') {
+        loadGatewayTools();
     }
     if (name === 'pending') {
         loadPendingMemories();
@@ -205,6 +210,50 @@ function renderActivityType(type) {
     const layerMap = { message: 1, memory: 2, model: 3, reply: 3 };
     const layer = layerMap[type] || 1;
     return `<span class="layer-badge layer-${layer}">${escHtml(type || '-')}</span>`;
+}
+
+// ============================================
+// 工具面板
+// ============================================
+async function loadGatewayTools() {
+    const tbody = document.getElementById('gateway-tools-tbody');
+    const msgEl = document.getElementById('gateway-tools-msg');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">加载中...</td></tr>';
+    if (msgEl) msgEl.innerHTML = '';
+    try {
+        const resp = await fetch(_pfx + '/api/gateway/tools', { headers: getAdminHeaders() });
+        const data = await resp.json();
+        if (data.error) {
+            tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--danger);">加载失败：${escHtml(data.error)}</td></tr>`;
+            return;
+        }
+        const tools = data.tools || [];
+        if (!tools.length) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">暂无工具</td></tr>';
+            return;
+        }
+        tbody.innerHTML = tools.map(tool => `
+            <tr>
+                <td><strong>${escHtml(tool.name || '-')}</strong></td>
+                <td>${renderToolBadge(tool.type || '-')}</td>
+                <td>${renderToolStatus(tool.status || '-')}</td>
+                <td>${tool.streaming ? '<span class="layer-badge layer-3">支持</span>' : '<span class="layer-badge layer-1">不支持</span>'}</td>
+                <td>${escHtml(tool.description || '')}</td>
+            </tr>
+        `).join('');
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--danger);">加载失败：${escHtml(e.message)}</td></tr>`;
+    }
+}
+
+function renderToolBadge(type) {
+    return `<span class="layer-badge layer-2">${escHtml(type || '-')}</span>`;
+}
+
+function renderToolStatus(status) {
+    const layer = status === 'active' ? 3 : 1;
+    return `<span class="layer-badge layer-${layer}">${escHtml(status || '-')}</span>`;
 }
 
 // ============================================

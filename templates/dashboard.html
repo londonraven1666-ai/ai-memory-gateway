@@ -19,6 +19,10 @@
                     <span class="nav-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l3-3 3 2 5-6"/><path d="M18 7h-4"/><path d="M18 7v4"/></svg></span>
                     <span class="nav-label">状态监控</span>
                 </a>
+                <a href="#" class="nav-item" data-section="tools">
+                    <span class="nav-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.1-3.1a6 6 0 0 1-7.9 7.9l-5.7 5.7a2.1 2.1 0 0 1-3-3l5.7-5.7a6 6 0 0 1 7.9-7.9l-3.1 3.1z"/></svg></span>
+                    <span class="nav-label">工具面板</span>
+                </a>
                 <a href="#" class="nav-item" data-section="pending">
                     <span class="nav-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
                     <span class="nav-label">待审记忆</span>
@@ -109,6 +113,36 @@
                             <tr><td colspan="4" style="text-align:center;color:var(--text-muted);">加载中...</td></tr>
                         </tbody>
                     </table>
+                </div>
+            </section>
+
+            <!-- 工具面板 Section -->
+            <section id="section-tools" class="section">
+                <div class="section-header">
+                    <h1>工具面板</h1>
+                    <p class="section-desc">查看 Gateway 标签工具的流式支持状态</p>
+                </div>
+
+                <div class="card table-card">
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 20px 24px 12px;">
+                        <h4>Gateway 工具</h4>
+                        <button class="btn btn-sm" onclick="loadGatewayTools()">刷新</button>
+                    </div>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>名称</th>
+                                <th class="col-layer">类型</th>
+                                <th class="col-layer">状态</th>
+                                <th class="col-layer">流式</th>
+                                <th>描述</th>
+                            </tr>
+                        </thead>
+                        <tbody id="gateway-tools-tbody">
+                            <tr><td colspan="5" style="text-align:center;color:var(--text-muted);">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                    <div id="gateway-tools-msg" class="msg-container"></div>
                 </div>
             </section>
 

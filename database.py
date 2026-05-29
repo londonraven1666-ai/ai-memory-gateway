@@ -46,6 +46,11 @@ MEMORY_HW_IMPORTANCE = float(os.getenv("MEMORY_HW_IMPORTANCE", "0.15"))
 MEMORY_HW_RECENCY = float(os.getenv("MEMORY_HW_RECENCY", "0.15"))
 MEMORY_SEMANTIC_THRESHOLD = float(os.getenv("MEMORY_SEMANTIC_THRESHOLD", "0.5"))
 
+# 搜索 provider 开关：bge_m3（默认）或 qwen3_4b
+MEMORY_SEARCH_PROVIDER = os.getenv("MEMORY_SEARCH_PROVIDER", "bge_m3")
+QWEN3_EMBED_URL = os.getenv("QWEN3_EMBED_URL", "http://127.0.0.1:11434/api/embed")
+QWEN3_EMBED_MODEL = os.getenv("QWEN3_EMBED_MODEL", "qwen3-embedding:4b")
+
 
 # ============================================================
 # 连接池管理
@@ -562,6 +567,26 @@ async def compute_embedding(text: str) -> list:
         print(f"⚠️ Embedding计算失败: {e}")
         return []
 
+async def compute_qwen3_embedding(texts):
+    """计算 qwen3-embedding-4B 向量（支持单条str或批量list）"""
+    import httpx
+    if isinstance(texts, str):
+        texts = [texts]
+    texts = [t[:2000] for t in texts]
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                QWEN3_EMBED_URL,
+                json={"model": QWEN3_EMBED_MODEL, "input": texts},
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data["embeddings"]
+    except Exception as e:
+        print(f"⚠️ Qwen3 Embedding失败: {e}")
+        return []
+
 
 async def save_memory_embedding(conn, memory_id: int, embedding: list):
     """保存记忆向量到memories表"""
@@ -816,13 +841,73 @@ async def _search_core_memories(query: str, limit: int = 10):
         
         return results
 
+async def search_memories_qwen3(query: str, limit: int = 10):
+    """纯 qwen3-4B 语义搜索：cosine 排序为王，不混 importance/recency"""
+    try:
+        embs = await compute_qwen3_embedding(query)
+        if not embs or not embs[0]:
+            print("⚠️ qwen3 query embedding失败，fallback到bge_m3")
+            return None
+        query_emb = embs[0]
+        vec_str = '[' + ','.join(str(f) for f in query_emb) + ']'
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT id, content, importance, created_at,
+                       1 - (embedding_qwen3 <=> $1::vector) as similarity
+                FROM core_memories
+                WHERE embedding_qwen3 IS NOT NULL
+                ORDER BY embedding_qwen3 <=> $1::vector
+                LIMIT $2
+            """, vec_str, limit)
+            results = []
+            for r in rows:
+                results.append({
+                    'id': r['id'],
+                    'content': r['content'],
+                    'importance': r['importance'],
+                    'created_at': r['created_at'],
+                    'similarity': float(r['similarity']),
+                    'score': float(r['similarity']),
+                    'hit_count': 0,
+                })
+            if results:
+                print(f"🔍 qwen3搜索 '{query}' → {len(results)} 条")
+                for r in results[:3]:
+                    print(f"   📌 [qwen3 sim={r['similarity']:.3f}] {r['content'][:60]}...")
+            return results
+    except Exception as e:
+        print(f"⚠️ qwen3搜索失败: {e}，fallback到bge_m3")
+        return None
+
 async def search_memories(query: str, limit: int = 10):
     """
-    搜索相关记忆
-    
-    MEMORY_VECTOR_ENABLED=true 时走混合搜索（关键词 + 向量）
-    否则走纯关键词搜索
+    搜索相关记忆 — 统一走记忆库 /api/search（纯 cosine 排序）
+    记忆库挂了才 fallback 到本地搜索
     """
+    try:
+        import httpx
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "http://127.0.0.1:3470/api/search",
+                json={"query": query, "limit": limit, "include_surfaced": False},
+                timeout=15.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            results = data.get("results", [])
+            if results:
+                print(f"🔍 记忆库搜索 \'{query}\' → {len(results)} 条")
+                return results
+    except Exception as e:
+        print(f"⚠️ 记忆库搜索失败: {e}，fallback 到本地")
+
+    # ---- fallback: 本地搜索 ----
+    if MEMORY_SEARCH_PROVIDER == "qwen3_4b":
+        result = await search_memories_qwen3(query, limit)
+        if result is not None:
+            return result
+
     if MEMORY_VECTOR_ENABLED:
         return await search_memories_hybrid(query, limit)
     
@@ -892,21 +977,6 @@ async def search_memories(query: str, limit: int = 10):
         else:
             print(f"🔍 搜索 '{query}' → 关键词 {keywords[:8]} → 无结果" + (f"（{filtered} 条被分数阈值过滤）" if filtered else ""))
         
-        # Merge with core_memories results
-        try:
-            core_results = await _search_core_memories(query, limit=limit)
-            if core_results:
-                # Combine and re-sort by score, deduplicate by content similarity
-                seen = set(r['content'][:50] for r in results)
-                for cr in core_results:
-                    if cr['content'][:50] not in seen:
-                        results.append(cr)
-                        seen.add(cr['content'][:50])
-                results.sort(key=lambda x: x.get('score', 0), reverse=True)
-                results = results[:limit]
-        except Exception as e:
-            print(f"⚠️ core_memories search failed: {e}")
-        
         return results
 
 
@@ -942,7 +1012,7 @@ async def search_memories_hybrid(query: str, limit: int = 10):
             where_clause = f"({' OR '.join(where_parts)})"
             
             limit_idx = len(keywords) + 1
-            params.append(limit * 3)
+            params.append(max(limit * 5, 20))
             
             kw_sql = f"""
                 SELECT id, content, importance, created_at,
@@ -976,7 +1046,7 @@ async def search_memories_hybrid(query: str, limit: int = 10):
                 WHERE embedding IS NOT NULL
                 ORDER BY embedding <=> $1::vector
                 LIMIT $2
-            """, vec_str, limit * 3)
+            """, vec_str, max(limit * 5, 20))
             
             for r in sem_rows:
                 sim = float(r['similarity'])
@@ -1030,6 +1100,15 @@ async def search_memories_hybrid(query: str, limit: int = 10):
                      MEMORY_HW_IMPORTANCE * imp +
                      MEMORY_HW_RECENCY * rec)
             
+            # exact keyword boost
+            exact_boost = 0.0
+            content_lower = info['content'].lower()
+            for _kw in keywords:
+                if len(_kw) >= 2 and _kw.lower() in content_lower:
+                    exact_boost += 0.25
+            exact_boost = min(exact_boost, 0.35)
+            score += exact_boost
+            
             final.append({
                 'id': mid,
                 'content': info['content'],
@@ -1071,21 +1150,6 @@ async def search_memories_hybrid(query: str, limit: int = 10):
         else:
             print(f"🔍 混合搜索 '{query}' → 无结果" + (f"（{filtered} 条被过滤）" if filtered else ""))
 
-        # Merge with core_memories results
-        try:
-            core_results = await _search_core_memories(query, limit=limit)
-            if core_results:
-                # Combine and re-sort by score, deduplicate by content similarity
-                seen = set(r['content'][:50] for r in results)
-                for cr in core_results:
-                    if cr['content'][:50] not in seen:
-                        results.append(cr)
-                        seen.add(cr['content'][:50])
-                results.sort(key=lambda x: x.get('score', 0), reverse=True)
-                results = results[:limit]
-        except Exception as e:
-            print(f"⚠️ core_memories search failed: {e}")
-        
         return [dict(r) for r in results]
 
 
