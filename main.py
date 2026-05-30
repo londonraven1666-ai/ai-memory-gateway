@@ -279,12 +279,13 @@ _GATEWAY_TOOLS_PROMPT = """
    仅在用户明确说"记住/remember/存一下"时使用。
 
 2. 搜记忆：<SEARCH_MEMORY>关键词</SEARCH_MEMORY>
-   用户问"你还记得吗/之前说过"时使用。
+   回答不了事实问题（名字、日期、数字、事件）时主动搜索。可以连续搜多次。
 
 3. 执行VPS命令：<EXEC_VPS>命令</EXEC_VPS>
    用户要求查服务器、重启服务、读文件时使用。
 
-正常对话不要使用标签。
+正常闲聊不需要标签。但答不出事实问题时，先搜再答，不要说'我不记得'。
+使用标签时不要解释或预告——不要写"让我搜索一下"或"Let me search"，直接在回复末尾放标签。
 </gateway_tools>"""
 SYSTEM_PROMPT = (SYSTEM_PROMPT + "\n" + _GATEWAY_TOOLS_PROMPT) if SYSTEM_PROMPT else _GATEWAY_TOOLS_PROMPT
 _DEFAULT_SYSTEM_PROMPT = SYSTEM_PROMPT  # 保留文件原始版本
@@ -571,14 +572,33 @@ async def build_system_prompt_with_memories(user_message: str, session_id: str =
         return SYSTEM_PROMPT
     
     try:
-        memories = await search_memories(user_message, limit=MAX_MEMORIES_INJECT)
+        # 多问题自动拆分搜索：按问号切，每个问题单独搜，合并去重
+        import re as _re
+        _questions = [q.strip() for q in _re.split(r'[？?]', user_message) if q.strip() and len(q.strip()) > 2]
+        if len(_questions) > 1:
+            _all = {}
+            for _q in _questions[:5]:  # 最多拆5个
+                _results = await search_memories(_q, limit=max(3, MAX_MEMORIES_INJECT // len(_questions)))
+                for m in (_results or []):
+                    mid = m.get("id", "")
+                    if mid not in _all or m.get("similarity", 0) > _all[mid].get("similarity", 0):
+                        _all[mid] = m
+            memories = sorted(_all.values(), key=lambda m: m.get("similarity", 0), reverse=True)[:MAX_MEMORIES_INJECT]
+            print(f"🔍 多问题搜索：{len(_questions)}个问题 → {len(memories)}条记忆")
+        else:
+            memories = await search_memories(user_message, limit=MAX_MEMORIES_INJECT)
         try:
-            await log_activity("memory", f"查记忆库：找到{len(memories)}条", session_id=session_id)
+            _recall_log = [{"id": m.get("id","")[:12], "title": (m.get("title") or "")[:40], "content": (m.get("content") or "")[:80], "sim": round(m.get("similarity",0), 3)} for m in (memories or [])[:12]]
+            await log_activity("memory", f"查记忆库：找到{len(memories)}条", session_id=session_id, actions={"recalled": _recall_log})
         except Exception as e:
             print(f"⚠️ activity log failed: {e}")
         
         if not memories:
             return SYSTEM_PROMPT
+        
+        # 最低相似度过滤（0.3以下扔掉）
+        MIN_SIM = 0.3
+        memories = [m for m in (memories or []) if m.get("similarity", 1.0) >= MIN_SIM]
         
         # 格式化记忆文本（带日期，帮助模型判断新旧）
         memory_lines = []
@@ -597,7 +617,7 @@ async def build_system_prompt_with_memories(user_message: str, session_id: str =
         
         enhanced_prompt = f"""{SYSTEM_PROMPT}
 
-【从过往对话中检索到的相关记忆】
+【从过往对话中检索到的相关记忆（按相关度排序，优先使用排在前面的）】
 {memory_text}
 
 # 记忆应用
@@ -924,9 +944,24 @@ async def build_memory_text(user_message: str, session_id: str = None) -> str:
     if MAX_MEMORIES_INJECT <= 0:
         return ""
     try:
-        memories = await search_memories(user_message, limit=MAX_MEMORIES_INJECT)
+        # 多问题自动拆分搜索
+        import re as _re
+        _questions = [q.strip() for q in _re.split(r'[？?]', user_message) if q.strip() and len(q.strip()) > 2]
+        if len(_questions) > 1:
+            _all = {}
+            for _q in _questions[:5]:
+                _results = await search_memories(_q, limit=max(3, MAX_MEMORIES_INJECT // len(_questions)))
+                for m in (_results or []):
+                    mid = m.get('id', '')
+                    if mid not in _all or m.get('similarity', 0) > _all[mid].get('similarity', 0):
+                        _all[mid] = m
+            memories = sorted(_all.values(), key=lambda m: m.get('similarity', 0), reverse=True)[:MAX_MEMORIES_INJECT]
+            print(f'🔍 多问题搜索(stream)：{len(_questions)}个问题 → {len(memories)}条记忆')
+        else:
+            memories = await search_memories(user_message, limit=MAX_MEMORIES_INJECT)
         try:
-            await log_activity("memory", f"查记忆库：找到{len(memories)}条", session_id=session_id)
+            _recall_log = [{"id": m.get("id","")[:12], "title": (m.get("title") or "")[:40], "content": (m.get("content") or "")[:80], "sim": round(m.get("similarity",0), 3)} for m in (memories or [])[:12]]
+            await log_activity("memory", f"查记忆库：找到{len(memories)}条", session_id=session_id, actions={"recalled": _recall_log})
         except Exception as e:
             print(f"⚠️ activity log failed: {e}")
         if not memories:
@@ -946,7 +981,7 @@ async def build_memory_text(user_message: str, session_id: str = None) -> str:
             memory_lines.append(f"- {date_str}{mem['content']}")
         
         print(f"📚 注入了 {len(memories)} 条相关记忆")
-        return "【从过往对话中检索到的相关记忆】\n" + "\n".join(memory_lines)
+        return "【从过往对话中检索到的相关记忆（按相关度排序，优先使用排在前面的）】\n" + "\n".join(memory_lines)
     except Exception as e:
         print(f"⚠️ 记忆检索失败: {e}")
         return ""

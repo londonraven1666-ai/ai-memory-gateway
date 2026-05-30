@@ -163,17 +163,6 @@ class SaveMemoryDetector:
 
         return "".join(safe), list(self.saved)
 
-    @property
-    def triggered(self):
-        return self.trigger_count > 0
-
-    def reset_for_next_stream(self):
-        """Reset state for next stream segment, keep trigger count"""
-        self.state = STATE_NORMAL
-        self.buffer = ""
-        self.tag_content = ""
-        self.search_query = None
-
     def flush(self):
         result = ""
         if self.buffer:
@@ -234,17 +223,6 @@ class ExecVpsDetector:
                     return "".join(safe), True
 
         return "".join(safe), False
-
-    @property
-    def triggered(self):
-        return self.trigger_count > 0
-
-    def reset_for_next_stream(self):
-        """Reset state for next stream segment, keep trigger count"""
-        self.state = STATE_NORMAL
-        self.buffer = ""
-        self.tag_content = ""
-        self.search_query = None
 
     def flush(self):
         result = ""
