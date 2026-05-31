@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gateway Config</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0e0c0a;color:#e8e0d4;font-family:-apple-system,sans-serif;padding:20px;max-width:480px;margin:0 auto}
+h1{font-size:14px;letter-spacing:4px;color:#c9a96e;margin-bottom:24px;font-weight:300}
+.card{background:rgba(30,27,23,0.8);border:1px solid rgba(201,169,110,0.15);border-radius:16px;padding:20px;margin-bottom:16px}
+.card h2{font-size:11px;color:#c9a96e;letter-spacing:2px;margin-bottom:14px;font-weight:500}
+label{font-size:10px;color:#8a8278;display:block;margin-bottom:4px;letter-spacing:1px}
+input,select{width:100%;padding:10px 14px;background:rgba(14,12,10,0.6);border:1px solid rgba(201,169,110,0.2);border-radius:12px;color:#e8e0d4;font-size:14px;outline:none;margin-bottom:10px}
+button{width:100%;padding:12px;background:rgba(201,169,110,0.15);border:1px solid rgba(201,169,110,0.3);border-radius:12px;color:#c9a96e;font-size:13px;cursor:pointer;letter-spacing:2px}
+button:hover{background:rgba(201,169,110,0.25)}
+.status{font-size:11px;margin-top:8px;min-height:20px}
+.ok{color:#7bc97a}.err{color:#c96e6e}
+.row{display:flex;gap:8px;padding:8px 12px;background:rgba(14,12,10,0.4);border-radius:10px;margin-bottom:6px;font-size:12px;align-items:center}
+.row .n{color:#c9a96e;width:60px}.row .i{color:#8a8278;flex:1}
+</style>
+</head>
+<body>
+<h1>GATEWAY</h1>
+<div class="card"><h2>STATUS</h2><div id="cfg"></div><button onclick="load()" style="margin-top:10px">REFRESH</button></div>
+<div class="card"><h2>PROVIDER</h2>
+<select id="p"><option value="claude">Claude (Anthropic)</option><option value="openai">OpenAI / Relay</option></select>
+<label>BASE URL</label><input id="u" placeholder="https://api.anthropic.com">
+<label>API KEY</label><input id="k" type="password" placeholder="sk-ant-xxx...">
+<label>MODEL</label><input id="m" placeholder="claude-opus-4-6">
+<button onclick="save()">SAVE</button><div class="status" id="ss"></div></div>
+<div class="card"><h2>TEST</h2><button onclick="test()">SEND TEST</button><div class="status" id="ts"></div></div>
+<script>
+const B=location.origin+'/gateway';
+async function load(){try{const r=await(await fetch(B+'/v1/config')).json();let h='<div style="font-size:11px;color:#8a8278;margin-bottom:8px">Default: '+r.default_provider+'</div>';for(const[n,c]of Object.entries(r.providers||{}))h+=`<div class="row"><span class="n">${n}</span><span class="i">${c.model||'—'}</span><span class="${c.has_key?'ok':'err'}" style="font-size:10px">${c.has_key?'key: '+c.key_preview:'no key'}</span></div>`;document.getElementById('cfg').innerHTML=h}catch(e){document.getElementById('cfg').innerHTML='<span class="err">Failed</span>'}}
+async function save(){const s=document.getElementById('ss');try{const b={provider:document.getElementById('p').value};const k=document.getElementById('k').value,u=document.getElementById('u').value,m=document.getElementById('m').value;if(k)b.api_key=k;if(u)b.base_url=u;if(m)b.model=m;const r=await(await fetch(B+'/v1/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)})).json();s.className='status ok';s.textContent='Saved: '+r.provider;load()}catch(e){s.className='status err';s.textContent=e.message}}
+async function test(){const s=document.getElementById('ts');s.className='status';s.textContent='...';try{const r=await(await fetch(B+'/v1/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:'test, reply one word',max_tokens:32})})).json();s.className='status '+(r.reply?'ok':'err');s.textContent=r.reply?r.reply.slice(0,60):(r.detail||'error').slice(0,80)}catch(e){s.className='status err';s.textContent=e.message}}
+load();
+</script>
+</body>
+</html>
