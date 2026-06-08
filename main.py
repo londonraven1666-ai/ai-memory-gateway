@@ -24,7 +24,7 @@ from fastapi.responses import StreamingResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from database import init_tables, close_pool, save_message, search_memories, save_memory, get_all_memories_count, get_recent_memories, get_all_memories, get_pool, get_all_memories_detail, update_memory, delete_memory, delete_memories_batch, get_gateway_config, set_gateway_config, delete_gateway_config, get_all_gateway_config, get_conversation_messages, get_session_cache_state, save_session_cache_state, delete_session_cache_state, save_token_usage, ensure_token_usage_table, ensure_conversation_titles_table, get_conversations_paginated, delete_conversation, batch_delete_conversations, merge_sessions_to_target, list_all_session_cache_states, export_all_conversations, import_conversations, get_last_user_content, update_last_assistant_message, db_row_to_message, backfill_memory_embeddings, get_pending_memory_embedding_count, search_conversations, update_message_content, rename_session_id, get_fragments_by_date, get_fragments_by_date_range, create_event_memory, deactivate_memories, promote_to_core, merge_memories, check_duplicate_memory, update_memory_with_layer, get_layer_statistics, cleanup_old_fragments, revert_merge, log_activity
+from database import init_tables, close_pool, save_message, search_memories, save_memory, get_all_memories_count, get_recent_memories, get_all_memories, get_pool, get_all_memories_detail, update_memory, delete_memory, delete_memories_batch, get_gateway_config, get_active_style, set_gateway_config, delete_gateway_config, get_all_gateway_config, get_conversation_messages, get_session_cache_state, save_session_cache_state, delete_session_cache_state, save_token_usage, ensure_token_usage_table, ensure_conversation_titles_table, get_conversations_paginated, delete_conversation, batch_delete_conversations, merge_sessions_to_target, list_all_session_cache_states, export_all_conversations, import_conversations, get_last_user_content, update_last_assistant_message, db_row_to_message, backfill_memory_embeddings, get_pending_memory_embedding_count, search_conversations, update_message_content, rename_session_id, get_fragments_by_date, get_fragments_by_date_range, create_event_memory, deactivate_memories, promote_to_core, merge_memories, check_duplicate_memory, update_memory_with_layer, get_layer_statistics, cleanup_old_fragments, revert_merge, log_activity
 import database as _db_module
 from style_injection import inject_style_into_current_user_message, parse_style, parse_style_list
 # ═══ Gateway-side tools ═══
@@ -644,6 +644,17 @@ def group_by_rounds(history: list) -> list:
     return rounds
 
 
+def append_style_to_current_user_text(current_text: str, style_text: str) -> str:
+    if not style_text:
+        return current_text
+    return (
+        f"{current_text}\n\n"
+        f"<style_instructions>\n"
+        f"{style_text}\n"
+        f"</style_instructions>"
+    )
+
+
 async def build_partitioned_messages(
     session_id: str,
     all_messages: list,
@@ -779,6 +790,10 @@ async def build_partitioned_messages(
                 item.get("text", "") for item in current_text
                 if isinstance(item, dict) and item.get("type") == "text"
             )
+        current_text = append_style_to_current_user_text(
+            current_text,
+            await get_active_style(),
+        )
         parts.append(current_text)
         result.append({"role": "user", "content": "\n\n".join(parts)})
     
@@ -825,6 +840,10 @@ async def _build_basic_cached(
                 item.get("text", "") for item in current_text
                 if isinstance(item, dict) and item.get("type") == "text"
             )
+        current_text = append_style_to_current_user_text(
+            current_text,
+            await get_active_style(),
+        )
         parts.append(current_text)
         result.append({"role": "user", "content": "\n\n".join(parts)})
     
@@ -1245,17 +1264,18 @@ async def chat_completions(request: Request):
 
     # Style instructions are appended only to the current user turn. The
     # injection clones that message, keeping storage and memory extraction clean.
-    active_style_name = await get_gateway_config("activeStyleName", "")
-    if active_style_name:
-        active_style = parse_style(
-            await get_gateway_config(f"style:{active_style_name}", "")
-        )
-        if active_style and active_style["content"].strip():
-            messages = inject_style_into_current_user_message(
-                messages,
-                active_style["content"],
+    if not CACHE_PARTITION_ENABLED:
+        active_style_name = await get_gateway_config("activeStyleName", "")
+        if active_style_name:
+            active_style = parse_style(
+                await get_gateway_config(f"style:{active_style_name}", "")
             )
-            body["messages"] = messages
+            if active_style and active_style["content"].strip():
+                messages = inject_style_into_current_user_message(
+                    messages,
+                    active_style["content"],
+                )
+                body["messages"] = messages
 
     # ---------- 模型处理 ----------
     model = body.get("model", DEFAULT_MODEL)
