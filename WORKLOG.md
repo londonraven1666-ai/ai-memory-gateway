@@ -126,3 +126,56 @@ Aquila 问"你给我的手表起名叫什么呀"(Latido) 和 "什么时候给你
 
 **保留备份**
 - `/opt/ai-memory-gateway/database.py.bak.20260527_134800` — 七天后清理
+
+## 2026-05-28/29/30 — qwen3迁移 + 流式工具 + 搜索统一
+
+### 搜索统一
+- `database.py` search_memories(): 改为调 context_server `/api/search`，本地搜索降为 fallback
+- 不再维护自己的向量搜索代码，所有搜索走记忆库
+
+### 流式工具标签 (stream_search.py 新增)
+- SearchTagDetector: SEARCH_MEMORY 检测，max_triggers=3（多轮搜索）
+- SaveMemoryDetector: SAVE_MEMORY 不中断流，异步存储
+- ExecVpsDetector: EXEC_VPS 中断流 + 安全黑名单 + 审计日志
+- main.py: 多轮工具循环 MAX_TOOL_ROUNDS=3
+
+### 新端点
+- GET /api/exec/audit?limit=50 — 审计日志查询
+- GET /api/gateway/tools — 工具列表
+
+### 仪表盘
+- dashboard.html + dashboard.js: 工具面板显示三个工具状态
+
+### 安全
+- BLOCKED_PATTERNS: rm -rf, dd, mkfs, shutdown 等
+- 审计日志: /opt/ai-memory-gateway/exec_audit.log
+- EXEC_VPS 超时30秒，输出截断2000字符
+
+## 2026-05-30 — 召回可视化 + 多问题搜索 + 工具提示词
+
+### 召回可视化
+- main.py: search_memories 结果存入 gateway_activity.actions JSONB
+- 每条: {id, title[:40], content[:80], sim}
+- dashboard.js: memory 行增加 ▶ 展开，点开看召回详情
+
+### 多问题自动拆分
+- main.py: 按 ？? 拆分用户消息，每个问题单独搜，合并去重
+- 两处（非流式 + 流式）都已改
+
+### 工具提示词修改
+- SEARCH_MEMORY: "答不出事实问题时主动搜索，可连续搜多次"
+- 最后一行: "答不出事实问题时先搜再答，不要说'我不记得'"
+
+### 修复
+- stream_search.py: 移除 ExecVpsDetector/SaveMemoryDetector 误加的 @property triggered
+
+## 2026-05-30 (续) — 注入优化 + thinking泄露修复
+
+### 注入优化
+- MAX_MEMORIES_INJECT: 6 → 4 (gateway_config)
+- 最低相似度过滤: similarity < 0.3 的结果丢弃
+- 注入提示: "按相关度排序，优先使用排在前面的"
+
+### thinking泄露修复
+- 工具提示词新增: "使用标签时不要解释或预告，直接放标签"
+- 防止模型在SEARCH_MEMORY前输出"Let me search..."
