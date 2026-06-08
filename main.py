@@ -2775,59 +2775,58 @@ def _validate_style_name(name: str) -> str:
     return normalized
 
 
+async def verify_gateway_admin(request: Request):
+    if not ADMIN_TOKEN:
+        return
+    if request.headers.get("X-Admin-Token", "") != ADMIN_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
 async def _get_styles_payload():
     style_names = parse_style_list(await get_gateway_config("styleList", "[]"))
     styles = []
-    valid_names = []
 
     for name in style_names:
         style = parse_style(await get_gateway_config(f"style:{name}", ""))
         if not style:
             continue
-        valid_names.append(name)
         styles.append({"name": name, **style})
 
-    if valid_names != style_names:
-        await set_gateway_config("styleList", json.dumps(valid_names, ensure_ascii=False))
-
     active_name = await get_gateway_config("activeStyleName", "")
-    if active_name not in valid_names:
-        active_name = ""
-        await set_gateway_config("activeStyleName", "")
-
-    return {"styles": styles, "activeStyleName": active_name}
+    return {"styles": styles, "active": active_name}
 
 
-@app.get("/api/styles")
+@app.get("/api/gateway/styles")
 async def get_styles(request: Request):
-    await verify_admin(request)
-    return await _get_styles_payload()
+    await verify_gateway_admin(request)
+    try:
+        return await _get_styles_payload()
+    except Exception as error:
+        print(f"[styles] list failed: {error}")
+        return {"styles": [], "active": ""}
 
 
-@app.put("/api/styles/active")
+@app.post("/api/gateway/styles/active")
 async def set_active_style(request: Request):
-    await verify_admin(request)
+    await verify_gateway_admin(request)
     data = await request.json()
     name = str(data.get("name", "")).strip()
     if name:
         name = _validate_style_name(name)
-        style_names = parse_style_list(await get_gateway_config("styleList", "[]"))
-        if name not in style_names:
+        if not await get_gateway_config(f"style:{name}", ""):
             raise HTTPException(status_code=404, detail="Style not found")
 
     await set_gateway_config("activeStyleName", name)
-    return await _get_styles_payload()
+    return {"ok": True}
 
 
-@app.put("/api/styles/{style_name}")
-async def save_style(style_name: str, request: Request):
-    await verify_admin(request)
-    name = _validate_style_name(style_name)
+@app.post("/api/gateway/styles")
+async def save_style(request: Request):
+    await verify_gateway_admin(request)
     data = await request.json()
+    name = _validate_style_name(str(data.get("name", "")))
     title = str(data.get("title", "")).strip()
     content = str(data.get("content", "")).strip()
-    if not title or not content:
-        raise HTTPException(status_code=400, detail="title and content are required")
 
     style_names = parse_style_list(await get_gateway_config("styleList", "[]"))
     if name not in style_names:
@@ -2838,12 +2837,12 @@ async def save_style(style_name: str, request: Request):
         json.dumps({"title": title, "content": content}, ensure_ascii=False),
     )
     await set_gateway_config("styleList", json.dumps(style_names, ensure_ascii=False))
-    return await _get_styles_payload()
+    return {"ok": True}
 
 
-@app.delete("/api/styles/{style_name}")
+@app.delete("/api/gateway/styles/{style_name}")
 async def remove_style(style_name: str, request: Request):
-    await verify_admin(request)
+    await verify_gateway_admin(request)
     name = _validate_style_name(style_name)
     style_names = parse_style_list(await get_gateway_config("styleList", "[]"))
     style_names = [item for item in style_names if item != name]
@@ -2853,7 +2852,7 @@ async def remove_style(style_name: str, request: Request):
     if await get_gateway_config("activeStyleName", "") == name:
         await set_gateway_config("activeStyleName", "")
 
-    return await _get_styles_payload()
+    return {"ok": True}
 
 
 @app.get("/api/status")
