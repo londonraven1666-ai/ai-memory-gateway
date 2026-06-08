@@ -1262,20 +1262,33 @@ async def chat_completions(request: Request):
         append_to_system_context(messages, summary)
         body["messages"] = messages
 
-    # Style instructions are appended only to the current user turn. The
-    # injection clones that message, keeping storage and memory extraction clean.
+    # Style instructions are appended only to a temporary copy sent upstream.
+    # original_messages and user_message remain unchanged for persistence.
     if not CACHE_PARTITION_ENABLED:
-        active_style_name = await get_gateway_config("activeStyleName", "")
-        if active_style_name:
-            active_style = parse_style(
-                await get_gateway_config(f"style:{active_style_name}", "")
-            )
-            if active_style and active_style["content"].strip():
-                messages = inject_style_into_current_user_message(
-                    messages,
-                    active_style["content"],
-                )
-                body["messages"] = messages
+        style_text = await get_active_style()
+        if style_text:
+            llm_messages = list(messages)
+            for i in range(len(llm_messages) - 1, -1, -1):
+                if llm_messages[i].get("role") != "user":
+                    continue
+
+                content = llm_messages[i].get("content", "")
+                if isinstance(content, str):
+                    llm_messages[i] = {
+                        **llm_messages[i],
+                        "content": append_style_to_current_user_text(
+                            content,
+                            style_text,
+                        ),
+                    }
+                else:
+                    llm_messages = inject_style_into_current_user_message(
+                        llm_messages,
+                        style_text,
+                    )
+                break
+
+            body["messages"] = llm_messages
 
     # ---------- 模型处理 ----------
     model = body.get("model", DEFAULT_MODEL)
