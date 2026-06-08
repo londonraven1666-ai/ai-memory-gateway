@@ -1272,6 +1272,21 @@ async def get_gateway_config(key: str, default: str = "") -> str:
         return row['value'] if row else default
 
 
+async def get_active_style() -> str:
+    name = await get_gateway_config("activeStyleName")
+    if not name:
+        return ""
+    raw = await get_gateway_config(f"style:{name}")
+    if not raw:
+        return ""
+    try:
+        data = json.loads(raw)
+        content = data.get("content", "")
+        return content.strip() if isinstance(content, str) else ""
+    except Exception:
+        return ""
+
+
 async def set_gateway_config(key: str, value: str):
     pool = await get_pool()
     async with pool.acquire() as conn:
