@@ -24,8 +24,9 @@ from fastapi.responses import StreamingResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from database import init_tables, close_pool, save_message, search_memories, save_memory, get_all_memories_count, get_recent_memories, get_all_memories, get_pool, get_all_memories_detail, update_memory, delete_memory, delete_memories_batch, get_gateway_config, set_gateway_config, get_all_gateway_config, get_conversation_messages, get_session_cache_state, save_session_cache_state, delete_session_cache_state, save_token_usage, ensure_token_usage_table, ensure_conversation_titles_table, get_conversations_paginated, delete_conversation, batch_delete_conversations, merge_sessions_to_target, list_all_session_cache_states, export_all_conversations, import_conversations, get_last_user_content, update_last_assistant_message, db_row_to_message, backfill_memory_embeddings, get_pending_memory_embedding_count, search_conversations, update_message_content, rename_session_id, get_fragments_by_date, get_fragments_by_date_range, create_event_memory, deactivate_memories, promote_to_core, merge_memories, check_duplicate_memory, update_memory_with_layer, get_layer_statistics, cleanup_old_fragments, revert_merge, log_activity
+from database import init_tables, close_pool, save_message, search_memories, save_memory, get_all_memories_count, get_recent_memories, get_all_memories, get_pool, get_all_memories_detail, update_memory, delete_memory, delete_memories_batch, get_gateway_config, set_gateway_config, delete_gateway_config, get_all_gateway_config, get_conversation_messages, get_session_cache_state, save_session_cache_state, delete_session_cache_state, save_token_usage, ensure_token_usage_table, ensure_conversation_titles_table, get_conversations_paginated, delete_conversation, batch_delete_conversations, merge_sessions_to_target, list_all_session_cache_states, export_all_conversations, import_conversations, get_last_user_content, update_last_assistant_message, db_row_to_message, backfill_memory_embeddings, get_pending_memory_embedding_count, search_conversations, update_message_content, rename_session_id, get_fragments_by_date, get_fragments_by_date_range, create_event_memory, deactivate_memories, promote_to_core, merge_memories, check_duplicate_memory, update_memory_with_layer, get_layer_statistics, cleanup_old_fragments, revert_merge, log_activity
 import database as _db_module
+from style_injection import inject_style_into_current_user_message, parse_style, parse_style_list
 # ═══ Gateway-side tools ═══
 GATEWAY_TOOLS = [
     {
@@ -1241,6 +1242,20 @@ async def chat_completions(request: Request):
     if summary:
         append_to_system_context(messages, summary)
         body["messages"] = messages
+
+    # Style instructions are appended only to the current user turn. The
+    # injection clones that message, keeping storage and memory extraction clean.
+    active_style_name = await get_gateway_config("activeStyleName", "")
+    if active_style_name:
+        active_style = parse_style(
+            await get_gateway_config(f"style:{active_style_name}", "")
+        )
+        if active_style and active_style["content"].strip():
+            messages = inject_style_into_current_user_message(
+                messages,
+                active_style["content"],
+            )
+            body["messages"] = messages
 
     # ---------- 模型处理 ----------
     model = body.get("model", DEFAULT_MODEL)
@@ -2718,6 +2733,94 @@ async def verify_admin(request: Request):
     auth = request.headers.get("Authorization", "")
     if auth != f"Bearer {ADMIN_TOKEN}":
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+def _validate_style_name(name: str) -> str:
+    normalized = name.strip()
+    if not normalized or len(normalized) > 100 or ":" in normalized:
+        raise HTTPException(status_code=400, detail="Invalid style name")
+    return normalized
+
+
+async def _get_styles_payload():
+    style_names = parse_style_list(await get_gateway_config("styleList", "[]"))
+    styles = []
+    valid_names = []
+
+    for name in style_names:
+        style = parse_style(await get_gateway_config(f"style:{name}", ""))
+        if not style:
+            continue
+        valid_names.append(name)
+        styles.append({"name": name, **style})
+
+    if valid_names != style_names:
+        await set_gateway_config("styleList", json.dumps(valid_names, ensure_ascii=False))
+
+    active_name = await get_gateway_config("activeStyleName", "")
+    if active_name not in valid_names:
+        active_name = ""
+        await set_gateway_config("activeStyleName", "")
+
+    return {"styles": styles, "activeStyleName": active_name}
+
+
+@app.get("/api/styles")
+async def get_styles(request: Request):
+    await verify_admin(request)
+    return await _get_styles_payload()
+
+
+@app.put("/api/styles/active")
+async def set_active_style(request: Request):
+    await verify_admin(request)
+    data = await request.json()
+    name = str(data.get("name", "")).strip()
+    if name:
+        name = _validate_style_name(name)
+        style_names = parse_style_list(await get_gateway_config("styleList", "[]"))
+        if name not in style_names:
+            raise HTTPException(status_code=404, detail="Style not found")
+
+    await set_gateway_config("activeStyleName", name)
+    return await _get_styles_payload()
+
+
+@app.put("/api/styles/{style_name}")
+async def save_style(style_name: str, request: Request):
+    await verify_admin(request)
+    name = _validate_style_name(style_name)
+    data = await request.json()
+    title = str(data.get("title", "")).strip()
+    content = str(data.get("content", "")).strip()
+    if not title or not content:
+        raise HTTPException(status_code=400, detail="title and content are required")
+
+    style_names = parse_style_list(await get_gateway_config("styleList", "[]"))
+    if name not in style_names:
+        style_names.append(name)
+
+    await set_gateway_config(
+        f"style:{name}",
+        json.dumps({"title": title, "content": content}, ensure_ascii=False),
+    )
+    await set_gateway_config("styleList", json.dumps(style_names, ensure_ascii=False))
+    return await _get_styles_payload()
+
+
+@app.delete("/api/styles/{style_name}")
+async def remove_style(style_name: str, request: Request):
+    await verify_admin(request)
+    name = _validate_style_name(style_name)
+    style_names = parse_style_list(await get_gateway_config("styleList", "[]"))
+    style_names = [item for item in style_names if item != name]
+
+    await delete_gateway_config(f"style:{name}")
+    await set_gateway_config("styleList", json.dumps(style_names, ensure_ascii=False))
+    if await get_gateway_config("activeStyleName", "") == name:
+        await set_gateway_config("activeStyleName", "")
+
+    return await _get_styles_payload()
 
 
 @app.get("/api/status")

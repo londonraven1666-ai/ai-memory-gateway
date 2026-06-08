@@ -1281,6 +1281,12 @@ async def set_gateway_config(key: str, value: str):
         """, key, value)
 
 
+async def delete_gateway_config(key: str):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM gateway_config WHERE key = $1", key)
+
+
 async def get_all_gateway_config() -> dict:
     """获取所有配置项"""
     pool = await get_pool()
